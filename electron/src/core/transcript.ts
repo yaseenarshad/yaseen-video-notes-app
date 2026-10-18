@@ -1,6 +1,7 @@
 import type { CaptionWord } from './captions'
 import { FollowAlongError } from './errors'
 import { graphemes, pad2, trimWSNL } from './text'
+import { GUIDE } from './guide'
 
 /** A paragraph of the formatted transcript. */
 export interface Paragraph {
@@ -133,6 +134,8 @@ export function header(info: VideoInfo): string {
 - duration: ${hms(info.duration)}
 - views: ${info.viewCount}
 - uploaded: ${info.uploadDate}
+
+${GUIDE}
 
 ---
 `

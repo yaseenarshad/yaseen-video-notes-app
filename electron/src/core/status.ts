@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { atomicWrite } from './atomic'
 import { graphemes, isSwiftDouble, trimWS, trimWSNL } from './text'
+import { ensureGuide } from './guide'
 
 /**
  * Per-video status, stored exactly the way yaseen-docs-app stores a Select column, so both apps
@@ -309,7 +310,8 @@ export function writeStatus(videoFolder: string, markdown: string, val: string):
   const id = folderInfo(withColumn).id
   const text = readFileSync(markdown, 'utf8')
   const updated = setValue(text, id, val)
-  if (updated !== text) atomicWrite(markdown, updated)
+  // the file is written anyway: it gets the current agent guide too (idempotent)
+  if (updated !== text) atomicWrite(markdown, ensureGuide(updated))
 }
 
 /** Moves the status forward to option `index` (never backward). Returns the new value if written. */

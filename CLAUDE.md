@@ -33,7 +33,10 @@ Do not commit unless asked.
 - `core/` — plain Node, no Electron; every file format lives here and is unit-tested
   - `captions.ts` — WebVTT → words with times (rolling auto-captions, manual captions, `>>` turns)
   - `transcript.ts` — paragraphs, chapters, `.md` header/body, sidecar, slug, YouTube id
-  - `notes.ts` — note parse / insert / edit / delete / restore; `atomic.ts` — atomic file writes
+  - `notes.ts` — note parse / insert / edit / delete / restore / category; `atomic.ts` — atomic file writes
+  - `guide.ts` — the agent guide comment written into each `.md` (the only copy of its text) + HTML-comment masking
+  - `noteAnchor.ts` — where a note card shows in the player (after the word it is about); self-contained,
+    served to the page as `/note-anchor.js` via `toString()`, so keep it free of imports and outside helpers
   - `folderMaker.ts` — yt-dlp runner, make / reuse / set up folders, New Tab folder list
   - `status.ts` — per-video status in the yaseen-docs-app format; `progress.ts` — the resume file
   - `text.ts` — Swift-compatible whitespace / trimming / number parsing (byte-identical output)
@@ -60,8 +63,18 @@ Do not commit unless asked.
    Never add, remove or merge paragraph lines in an existing file.
 3. **Notes format.** `> 💬 [m:ss](url&t=Ns) text`, continuation lines `> …`. A note on highlighted words:
    `> 💬 [m:ss–m:ss](url&t=STARTs) text` + last line `> “quote”` — the quote is the exact selected text when ≤ 15
-   words, else first 6 + ` … ` + last 6; a range inside one second is written as a single `[m:ss]`. Hand-typed `> 💬 text` (no time) belongs to the paragraph above. Frontmatter
-   (`---\nid: YAS-NNN\n---`) may be added above `# Title` by another tool and must be tolerated.
+   words, else first 6 + ` … ` + last 6; a range inside one second is written as a single `[m:ss]`. Hand-typed `> 💬 text` (no time) belongs to the paragraph above.
+   **Tags** right after the time link (or right after `> 💬 ` with no time), space-separated, any order and case
+   when read: `#mochi` = make a flashcard from this note (untagged = general); `#resolved` = done (untagged = open).
+   Written lowercase, `#mochi` before `#resolved`, e.g. `> 💬 [m:ss](url&t=Ns) #mochi #resolved text`. Never write
+   `#general` / `#open`. **Resolution lines** `> ↳ resolved: what was done` (written by agents) go after the note
+   text and before the quote line (last line when there is no quote). Tags and resolution lines are not note text
+   (edit/delete/toggle matching compares the text without them); edits keep them; toggles change only the tags.
+   Frontmatter (`---\nid: YAS-NNN\n---`) may be added above `# Title` by another tool and must be tolerated.
+   **Agent guide:** a `<!-- follow-along guide vN … -->` comment after the header list, before the header's `---`
+   (`core/guide.ts`). Every parser skips HTML comment blocks (`commentMask`). It is written into new folders and
+   setup conversions; an existing file gets it (or a newer version, replaced in place, exactly one) only when the
+   app writes that file anyway (note save/edit/delete/toggle, status write) — never a write just for the guide.
 4. **Atomic writes** for every file the app changes (`atomicWrite`: temp file in the same folder + rename).
    Note edits/deletes check that the note's text in the file still matches what the player showed (409 otherwise).
 5. **Never rewrite a user's file silently.** A plain transcript from another tool is reformatted only after the user

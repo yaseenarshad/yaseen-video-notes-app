@@ -10,6 +10,7 @@ import * as Notes from './notes'
 import { fraction, finished, readProgress, type Progress } from './progress'
 import { trimWS } from './text'
 import { DEFAULT_OPTIONS, parentInfo, value as statusValue } from './status'
+import { ensureGuide, withoutComments } from './guide'
 import {
   body, decodeSidecar, encodeSidecar, folderName, header, makeSidecar, markdown, paragraphs, parseInfoJSON, parseYouTubeID, slug,
   SIDECAR_FILE, type Paragraph, type Sidecar, type VideoInfo,
@@ -214,7 +215,7 @@ export async function ensure(path: string, opts: { allowFormat?: boolean; progre
   }
   const id = videoIDInMarkdown(mdPath)
   if (!id) throw new FollowAlongError(`${basename(mdPath)} has no "- url:" line with a YouTube link.`)
-  if (count === 0 && md.includes('💬')) throw new FollowAlongError(`${basename(mdPath)} has notes but no timestamped paragraphs, so it was not changed.`)
+  if (count === 0 && withoutComments(md).includes('💬')) throw new FollowAlongError(`${basename(mdPath)} has notes but no timestamped paragraphs, so it was not changed.`)
   if (count === 0 && !allowFormat) throw new NeedsFormatting(folder, mdPath, backupPath(mdPath))
   const { info, vtt } = await download(id, progress)
   const made = format(info, vtt)
@@ -224,7 +225,7 @@ export async function ensure(path: string, opts: { allowFormat?: boolean; progre
     if (!existsSync(backup)) copyFileSync(mdPath, backup)
     // Keep everything above the header's "---" (frontmatter, title, fields); replace the plain body.
     const head = headPart(md) ?? header(info)
-    atomicWrite(mdPath, head + '\n' + body(made.paragraphs, info.id, made.sidecar.chapters ?? []))
+    atomicWrite(mdPath, ensureGuide(head + '\n' + body(made.paragraphs, info.id, made.sidecar.chapters ?? [])))
     progress(`Formatted the transcript in ${basename(mdPath)}`)
   } else if (count !== made.paragraphs.length) {
     throw new FollowAlongError(`${basename(mdPath)} has ${count} paragraphs but the captions make ${made.paragraphs.length}, so the word timing would not line up.`)

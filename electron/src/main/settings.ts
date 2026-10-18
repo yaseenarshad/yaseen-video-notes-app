@@ -30,8 +30,8 @@ const NUMBER_PREFS: Record<string, [number, number]> = {
   speed: [0.07, 16], lastSpeed: [0.07, 16], favSpeed: [0.07, 16], fontSize: [12, 32], split: [20, 80],
 }
 const BOOL_PREFS = ['badgeHidden', 'focus', 'hintShown']
-const STRING_PREFS: Record<string, string[]> = { panel: ['chapters', 'notes'] }
-const PLAYER_DEFAULTS = { speed: 1.0, lastSpeed: 2.5, favSpeed: 2.5, badgeHidden: false, fontSize: 17.0, split: 46.0, focus: false, panel: 'chapters', hintShown: false }
+const STRING_PREFS: Record<string, string[]> = { panel: ['chapters', 'notes'], noteCategory: ['general', 'mochi'] }
+const PLAYER_DEFAULTS = { speed: 1.0, lastSpeed: 2.5, favSpeed: 2.5, badgeHidden: false, fontSize: 17.0, split: 46.0, focus: false, panel: 'chapters', hintShown: false, noteCategory: 'general' }
 
 const exists = (p: string): boolean => { try { return existsSync(p) } catch { return false } }
 

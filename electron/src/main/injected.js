@@ -1,5 +1,5 @@
 (function () {
-  if (window.__followAlong) return;
+  if (window.__followAlong) return 'already';   // once per document; the app re-injects on every load
   window.__followAlong = true;
   var host = location.hostname;
   if (window === window.top) return;

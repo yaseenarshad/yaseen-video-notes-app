@@ -52,8 +52,8 @@ instance add `--user-data-dir=<tmp dir> --mute --inactive`.
 | `G` | favorite speed (2.5) |
 | `V` | show / hide the speed badge |
 | `Space` | play / pause |
-| `Z` / `X` | back / forward 10 s |
-| `←` / `→` | back / forward 5 s |
+| `Z` / `X` | back / forward 5 s |
+| `←` / `→` | back / forward 10 s |
 | `N` | new note (pauses; Enter saves, Shift+Enter new line, Esc cancels). With words highlighted: a note on those words |
 | `F` | follow the video on / off |
 | `Shift+F` | focus mode |

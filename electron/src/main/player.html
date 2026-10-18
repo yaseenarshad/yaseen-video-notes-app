@@ -12,20 +12,23 @@
   :root {
     --bg: #fbfaf7; --panel: #ffffff; --ink: #1d1d1b; --muted: #66635c; --faint: #c9c5bb; --past: #36342f;
     --line: #e6e2d9; --accent: #c2410c; --hl: #f6efdc; --hl-bar: #e0a526; --hl-word: #ffe58a; --hl-ink: #1d1d1b;
-    --note: #edf2fc; --note-edge: #3d63b8; --cover: #d6e4ff; --hit: #ffe08a; --hit-cur: #ffb35c;
+    --note: #edf2fc; --note-edge: #3d63b8; --cover: #d6e4ff; --hit: #ffe08a; --hit-cur: #ffb35c; --ncov: rgba(61, 99, 184, .5); --ncov-faint: rgba(61, 99, 184, .22);
+    --mochi: #7b3fc4; --on-pill: #ffffff;
     --split: 46%; --fs: 17px;
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
       --bg: #1c1c1f; --panel: #242428; --ink: #ecebe6; --muted: #a7a39b; --faint: #55524c; --past: #d0cdc6;
       --line: #313036; --accent: #ff8a4c; --hl: #2a2721; --hl-bar: #ffc533; --hl-word: #ffd45e; --hl-ink: #1c1c1f;
-      --note: #232a3a; --note-edge: #8fb0ff; --cover: #2f4370; --hit: #6b5a1c; --hit-cur: #ffb35c;
+      --note: #232a3a; --note-edge: #8fb0ff; --cover: #2f4370; --hit: #6b5a1c; --hit-cur: #ffb35c; --ncov: rgba(143, 176, 255, .55); --ncov-faint: rgba(143, 176, 255, .24);
+      --mochi: #c9a2ff; --on-pill: #1c1c1f;
     }
   }
   :root[data-theme="dark"] {
     --bg: #1c1c1f; --panel: #242428; --ink: #ecebe6; --muted: #a7a39b; --faint: #55524c; --past: #d0cdc6;
     --line: #313036; --accent: #ff8a4c; --hl: #2a2721; --hl-bar: #ffc533; --hl-word: #ffd45e; --hl-ink: #1c1c1f;
-    --note: #232a3a; --note-edge: #8fb0ff; --cover: #2f4370; --hit: #6b5a1c; --hit-cur: #ffb35c;
+    --note: #232a3a; --note-edge: #8fb0ff; --cover: #2f4370; --hit: #6b5a1c; --hit-cur: #ffb35c; --ncov: rgba(143, 176, 255, .55); --ncov-faint: rgba(143, 176, 255, .24);
+    --mochi: #c9a2ff; --on-pill: #1c1c1f;
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; background: var(--bg); color: var(--ink); }
@@ -48,6 +51,13 @@
   .vmsg { position: absolute; inset: auto 10px 10px 10px; font: 13px system-ui, sans-serif; color: #fff;
     background: rgba(170,30,0,.85); padding: 6px 10px; border-radius: 6px; display: none; }
   .vmsg.show { display: block; }
+  /* the bridge to the YouTube frame is down: "Reconnecting to video…", then a Reload button */
+  .conn { position: absolute; top: 10px; right: 10px; display: none; align-items: center; gap: 8px; font: 600 12.5px system-ui, sans-serif;
+    color: #fff; background: rgba(0,0,0,.72); padding: 4px 6px 4px 10px; border-radius: 999px; }
+  .conn.show { display: flex; }
+  .conn button { display: none; font: 600 12px system-ui, sans-serif; border: 0; border-radius: 999px; padding: 3px 10px; cursor: pointer;
+    background: var(--accent); color: #fff; }
+  .conn.stuck button { display: block; }
   .info { flex: none; }
   h1 { font: 600 18px/1.3 system-ui, sans-serif; margin: 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
   .meta { font: 13.5px/1.5 system-ui, sans-serif; color: var(--muted); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -146,8 +156,16 @@
   .p.active .body span.phrase.pstart.pend { box-shadow: none; border-radius: 3px; }
   .p.active .body span.now { text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px;
     text-decoration-color: var(--hl-ink); }
-  .body span { cursor: pointer; }
-  .body span:hover { text-decoration: underline; text-decoration-color: var(--faint); }
+  .body > span { cursor: pointer; }
+  .body > span:hover { text-decoration: underline; text-decoration-color: var(--faint); }
+  /* words a range note covers: a soft persistent underline; a point note's word: a small dot under it */
+  .body > span.ncovr { text-decoration: underline; text-decoration-color: var(--ncov-faint); text-decoration-thickness: 1.5px; text-underline-offset: 4px; }
+  .body > span.ncov { text-decoration: underline; text-decoration-color: var(--ncov); text-decoration-thickness: 1.5px; text-underline-offset: 4px; }
+  .body > span.nmark, .body > span.nmarkr { position: relative; }
+  .body > span.nmarkr::after { content: ""; position: absolute; left: 50%; bottom: -3px; width: 5px; height: 5px; margin-left: -2.5px;
+    border-radius: 50%; background: var(--note-edge); opacity: .35; pointer-events: none; }
+  .body > span.nmark::after { content: ""; position: absolute; left: 50%; bottom: -3px; width: 5px; height: 5px; margin-left: -2.5px;
+    border-radius: 50%; background: var(--note-edge); pointer-events: none; }
   .body span.cover, .body span.pending { background: var(--cover); text-decoration: underline; text-decoration-color: var(--note-edge);
     text-underline-offset: 3px; border-radius: 2px; }
   .body span.hit { background: var(--hit); border-radius: 2px; color: var(--ink); }
@@ -161,15 +179,58 @@
 
   .notes { grid-column: 2; display: flex; flex-direction: column; gap: 6px; }
   .notes:empty { display: none; }
+  /* note cards inside a paragraph, right after the word they are about: a block, so the text continues below */
+  .ncards { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 8px; }
+  .ncards:empty { display: none; }
+  /* note cards are not transcript text: never part of a selection (or a range note's quote) */
   .note { font: 14px/1.5 system-ui, sans-serif; background: var(--note); border-left: 3px solid var(--note-edge);
-    padding: 6px 10px; border-radius: 0 6px 6px 0; color: var(--ink); white-space: pre-wrap; user-select: text; }
+    padding: 6px 10px; border-radius: 0 6px 6px 0; color: var(--ink); white-space: pre-wrap; user-select: none; -webkit-user-select: none; }
   .note.pinned, .note.flash { box-shadow: 0 0 0 1px var(--note-edge); }
   .note .nt { font: 11px ui-monospace, monospace; color: var(--note-edge); cursor: pointer; margin-right: 6px; }
   .note .nq { display: block; margin-top: 3px; font-style: italic; color: var(--muted); opacity: .8;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .note.pinned .nq { white-space: normal; }
   .composer { font: 14px/1.5 system-ui, sans-serif; background: var(--note); border-left: 3px solid var(--accent);
-    padding: 8px 10px; border-radius: 0 6px 6px 0; }
+    padding: 8px 10px; border-radius: 0 6px 6px 0; user-select: none; -webkit-user-select: none; }
+  .composer textarea { user-select: text; -webkit-user-select: text; }
+  /* note category: General / 🃏 Mochi (a Mochi note is one to make a flashcard from) */
+  .cats { display: flex; gap: 6px; margin: 0 0 6px; }
+  .cat { font: 600 12px/1.2 system-ui, sans-serif; padding: 4px 11px; border-radius: 999px; border: 1px solid var(--line);
+    background: var(--panel); color: var(--muted); cursor: pointer; }
+  .cat:hover { border-color: var(--muted); }
+  .cat.on { background: var(--note-edge); border-color: var(--note-edge); color: var(--on-pill); }
+  .cat.mochi.on { background: var(--mochi); border-color: var(--mochi); }
+  .note.mochi { border-left-color: var(--mochi); }
+  .nbadge { display: inline-block; font: 600 10.5px/1.5 system-ui, sans-serif; color: var(--mochi); border: 1px solid var(--mochi);
+    border-radius: 999px; padding: 0 6px; margin-right: 6px; vertical-align: 1px; white-space: nowrap; }
+  /* resolved notes: a small ✓ chip in the transcript; expanded, the text is struck through (the resolution is not) */
+  .note .nres { display: block; margin-top: 3px; font-size: 12px; color: var(--muted); }
+  .note .nchip { display: none; }
+  .note.resolved .ntext { text-decoration: line-through; text-decoration-thickness: 1px; opacity: .6; }
+  .note.resolved .nq, .note.resolved .nbadge { opacity: .55; }
+  .note.resolved { cursor: pointer; }
+  .note.resolved.collapsed { align-self: flex-start; display: inline-flex; align-items: center; gap: 5px; padding: 1px 10px 1px 8px;
+    border-left-width: 2px; border-radius: 0 999px 999px 0; opacity: .85; white-space: nowrap; }
+  .note.resolved.collapsed > :not(.nt):not(.nchip) { display: none; }
+  .note.resolved.collapsed .nchip { display: inline; font: 12px system-ui, sans-serif; color: var(--muted); }
+  .note.resolved.collapsed .nt { margin-right: 0; }
+  .item .ick { color: var(--muted); margin-right: 4px; }
+  .item.res .ix { text-decoration: line-through; text-decoration-thickness: 1px; opacity: .6; }
+  .item.res .iq { opacity: .55; }
+  .item .ires { display: block; font-size: 12px; color: var(--muted); white-space: pre-wrap; }
+  .composer { position: relative; }
+  .composer .cats, .composer .hint { padding-right: 28px; }
+  .cclose { position: absolute; top: 5px; right: 6px; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px;
+    background: transparent; color: var(--muted); font: 18px/24px system-ui, sans-serif; text-align: center; cursor: pointer;
+    user-select: none; -webkit-user-select: none; }
+  .cclose:hover { background: var(--hl); color: var(--ink); }
+  .nfilter { position: sticky; top: -4px; z-index: 1; display: flex; flex-wrap: wrap; gap: 4px; padding: 4px 4px 6px; margin: -4px -4px 2px;
+    background: var(--panel); border-bottom: 1px solid var(--line); }
+  .nfilter button { border: 1px solid var(--line); background: transparent; color: var(--muted); padding: 2px 10px; border-radius: 999px;
+    cursor: pointer; font: 12.5px system-ui, sans-serif; }
+  .nfilter button.on { background: var(--hl); color: var(--ink); border-color: var(--muted); font-weight: 600; }
+  .nfilter .sep { width: 1px; background: var(--line); margin: 2px 3px; }
+  .nfilter .cnt { font-variant-numeric: tabular-nums; opacity: .75; margin-left: 4px; }
   .composer textarea { width: 100%; min-height: 54px; resize: vertical; font: inherit; color: var(--ink);
     background: transparent; border: 0; outline: 0; }
   .composer .hint { font-size: 12px; color: var(--muted); }
@@ -207,7 +268,7 @@
 <div class="app" id="app">
   <div class="left">
     <div class="video"><iframe id="yt" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen
-      referrerpolicy="strict-origin-when-cross-origin"></iframe><div class="speed" id="speed">1.00</div><div class="vmsg" id="vmsg"></div></div>
+      referrerpolicy="strict-origin-when-cross-origin"></iframe><div class="speed" id="speed">1.00</div><div class="vmsg" id="vmsg"></div><div class="conn" id="conn"><span>Reconnecting to video…</span><button id="reloadVideo">Reload video</button></div></div>
     <div class="info"><h1 id="title"></h1><div class="meta"><span id="meta"></span> · <span class="live" id="live">connecting…</span></div></div>
     <div class="bar">
       <button id="follow" class="on" title="Auto-scroll with the video (F)">Follow: on</button>
@@ -248,6 +309,7 @@
       <div class="row"><span>Note on highlighted words</span><span>select + <kbd>N</kbd></span></div>
       <div class="row"><span>Save note</span><span><kbd>Enter</kbd></span></div>
       <div class="row"><span>New line in a note</span><span><kbd>⇧</kbd><kbd>Enter</kbd></span></div>
+      <div class="row"><span>General / 🃏 Mochi note (while typing)</span><span><kbd>Tab</kbd></span></div>
       <div class="row"><span>Cancel note</span><span><kbd>Esc</kbd></span></div></div>
     <div><h3>Speed</h3>
       <div class="row"><span>Slower / faster (0.1)</span><span><kbd>S</kbd><kbd>D</kbd></span></div>
@@ -256,8 +318,8 @@
       <div class="row"><span>Show / hide speed badge</span><span><kbd>V</kbd></span></div></div>
     <div><h3>Move</h3>
       <div class="row"><span>Play / pause</span><span><kbd>Space</kbd></span></div>
-      <div class="row"><span>Back / forward 10 s</span><span><kbd>Z</kbd><kbd>X</kbd></span></div>
-      <div class="row"><span>Back / forward 5 s</span><span><kbd>←</kbd><kbd>→</kbd></span></div>
+      <div class="row"><span>Back / forward 5 s</span><span><kbd>Z</kbd><kbd>X</kbd></span></div>
+      <div class="row"><span>Back / forward 10 s</span><span><kbd>←</kbd><kbd>→</kbd></span></div>
       <div class="row"><span>Jump to a word, time or chapter</span><span>click</span></div></div>
     <div><h3>View</h3>
       <div class="row"><span>Follow the video</span><span><kbd>F</kbd></span></div>
@@ -270,6 +332,7 @@
       <div class="row"><span>This list</span><span><kbd>?</kbd></span></div></div>
   </div></div></div>
 
+<script src="/note-anchor.js"></script>
 <script>
 (async function () {
 const $ = id => document.getElementById(id);
@@ -333,9 +396,10 @@ tx.appendChild(frag);
 const P = { t: 0, at: performance.now(), rate: 1, paused: true, dur: 0, ok: false, q: '', w: 0, h: 0, err: '', ad: false, seen: 0 };
 const frame = $('yt');
 const origin = location.origin;
-frame.src = 'https://www.youtube.com/embed/' + encodeURIComponent(DATA.id) +
+const embedURL = start => 'https://www.youtube.com/embed/' + encodeURIComponent(DATA.id) +
   '?playsinline=1&rel=0&modestbranding=1&enablejsapi=1&origin=' + encodeURIComponent(origin) +
-  '&widget_referrer=' + encodeURIComponent(origin);
+  '&widget_referrer=' + encodeURIComponent(origin) + (start > 0 ? '&start=' + Math.floor(start) : '');
+frame.src = embedURL(0);
 function cmd(o) { try { frame.contentWindow.postMessage(Object.assign({ fa: 'cmd' }, o), '*'); } catch (e) {} }
 function now() { return P.paused ? P.t : P.t + (performance.now() - P.at) / 1000 * P.rate; }
 
@@ -358,14 +422,29 @@ function setSpeed(r) {
 showSpeed();
 if (PREFS.badgeHidden) $('speed').classList.add('hide');
 
+// bridge state (see the watchdog below)
+let askTries = 0, askFirst = 0, lastAsk = 0, reloading = null, resumeDone = false, seekHold = null;
 window.addEventListener('message', e => {
   const m = e.data;
   if (!m || typeof m !== 'object' || e.source !== frame.contentWindow) return;
   if (m.fa === 'status') {
     const first = !P.ok && m.ok;
-    Object.assign(P, { t: m.t, at: performance.now(), rate: m.rate, paused: m.paused, dur: m.dur, ok: m.ok,
-      q: m.q, w: m.w, h: m.h, err: m.err, ad: m.ad, seen: performance.now() });
-    if (first) { cmd({ rate: speed }); native({ type: 'connected' }); resume(); }
+    // after a reload the new frame reports its start for a moment: keep our time until the seek lands
+    const hold = seekHold && performance.now() < seekHold.until && Math.abs(m.t - seekHold.t) > 3;
+    if (!hold) seekHold = null;
+    Object.assign(P, { rate: m.rate, dur: m.dur, ok: m.ok, q: m.q, w: m.w, h: m.h, err: m.err, ad: m.ad, seen: performance.now() },
+      hold ? {} : { t: m.t, at: performance.now(), paused: m.paused });
+    if (first) {
+      cmd({ rate: speed }); native({ type: 'connected', reload: !!reloading });
+      if (reloading) {   // back to where the video was before the reload
+        const r = reloading; reloading = null;
+        cmd(r.play ? { seek: r.t, play: true } : { seek: r.t });
+        Object.assign(P, { t: r.t, at: performance.now(), paused: !r.play });
+        seekHold = { t: r.t, until: performance.now() + 5000 };
+      } else if (!resumeDone) { resumeDone = true; resume(); }
+    }
+    if (askTries) { native({ type: 'reconnected', tries: askTries, ms: Math.round(performance.now() - askFirst) }); askTries = 0; }
+    showConn(0);
     if (m.ok && !rateTimer && Math.abs(m.rate - speed) > 0.01 && performance.now() - lastRateFix > 500) { lastRateFix = performance.now(); cmd({ rate: speed }); }
     $('vmsg').textContent = m.err ? 'YouTube: ' + m.err : '';
     $('vmsg').classList.toggle('show', !!m.err);
@@ -375,6 +454,31 @@ window.addEventListener('message', e => {
     if (!composing && !findOpen() && !confirmOpen()) handleKey(m.key || '', true, m.repeat, m.shift);
   }
 });
+// ---------- the bridge to the YouTube frame: watchdog ----------
+// The injected script reports ~16×/s. If that stops (the frame reloaded, navigated or crashed) while this
+// tab is shown, ask the app to inject again (it reloads the frame itself when there is no live YouTube
+// frame); still nothing → "Reconnecting to video…", then a Reload video button.
+function showConn(level) {   // 0 hidden, 1 reconnecting, 2 reconnecting + Reload button
+  const c = $('conn'); c.classList.toggle('show', level > 0); c.classList.toggle('stuck', level > 1);
+}
+function reloadVideo(why) {
+  if (reloading && performance.now() - reloading.at < 8000) return;
+  const t = Math.max(0, now());
+  reloading = { t, play: !P.paused, at: performance.now() };
+  native({ type: 'reload-video', why: why || 'button', t: +t.toFixed(1), play: reloading.play });
+  P.ok = false; P.seen = performance.now();   // the new frame gets time to load before the next ask
+  frame.src = embedURL(t);
+}
+$('reloadVideo').onclick = () => { askTries = Math.max(askTries, 1); reloadVideo('button'); };
+setInterval(() => {
+  if (!P.seen || document.hidden) return;   // not connected yet (the app looks for the frame itself) or not on screen
+  const t = performance.now(), age = t - P.seen;
+  if (age < 2500 || t - lastAsk < 2500) return;
+  lastAsk = t; if (!askTries) askFirst = t; askTries++;
+  native({ type: 'reconnect', tries: askTries, stale: Math.round(age) });
+  showConn(askTries >= 4 ? 2 : askTries >= 2 ? 1 : 0);
+}, 500);
+
 setInterval(() => {
   const stale = performance.now() - P.seen > 12000;
   const live = $('live');
@@ -487,16 +591,35 @@ function pause() { if (!P.paused) togglePlay(); else sendPos(false); }
 let downAt = null, dragged = false, pendingSeek = null;
 const hasSelection = () => { const s = window.getSelection(); return !!s && !s.isCollapsed && tx.contains(s.anchorNode); };
 const selecting = () => downAt !== null || hasSelection();
-tx.addEventListener('mousedown', e => { if (e.button === 0) { downAt = { x: e.clientX, y: e.clientY }; dragged = false; } });
-document.addEventListener('mousemove', e => { if (downAt && Math.abs(e.clientX - downAt.x) + Math.abs(e.clientY - downAt.y) > 4) dragged = true; });
-document.addEventListener('mouseup', () => { downAt = null; });
+tx.addEventListener('mousedown', e => {
+  // a click in the transcript takes the keys back from the YouTube frame (even a dead one)
+  if (document.activeElement === frame) { try { frame.blur(); } catch (err) {} window.focus(); }
+  if (e.button === 0) { downAt = { x: e.clientX, y: e.clientY, at: performance.now() }; dragged = false; }
+});
+// "Mouse is down" must always end: a lost mouseup (released over the video frame or another app, a text
+// drag-and-drop, switching apps mid-drag) used to freeze the highlight and auto-scroll for good.
+function mouseDone(why) {
+  if (downAt === null) return;
+  const held = performance.now() - downAt.at; downAt = null;
+  if (why !== 'mouseup') native({ type: 'mouse-released', why, held: Math.round(held) });
+}
+document.addEventListener('mousemove', e => {
+  if (!downAt) return;
+  if ((e.buttons & 1) === 0) return mouseDone('no-button');
+  if (Math.abs(e.clientX - downAt.x) + Math.abs(e.clientY - downAt.y) > 4) dragged = true;
+});
+document.addEventListener('mouseup', () => mouseDone('mouseup'), true);
+['pointerup', 'pointercancel', 'dragstart', 'dragend', 'drop'].forEach(ev => document.addEventListener(ev, () => mouseDone(ev), true));
+window.addEventListener('blur', () => mouseDone('blur'));
+document.addEventListener('visibilitychange', () => { if (document.hidden) mouseDone('hidden'); });
+setInterval(() => { if (downAt && performance.now() - downAt.at > 20000) mouseDone('timeout'); }, 1000);
 tx.addEventListener('dblclick', () => clearTimeout(pendingSeek));
 tx.addEventListener('click', e => {
   clearTimeout(pendingSeek);
   if (dragged || e.detail > 1 || e.shiftKey || hasSelection()) return;   // a selection, not a click
   const el = e.target;
   let t = null;
-  if (el.classList.contains('nt')) t = +el.dataset.s;
+  if (el.classList.contains('nt')) { if (el.closest('.note.collapsed')) return; t = +el.dataset.s; }
   else if (el.dataset.w !== undefined) t = DATA.t[+el.dataset.p][+el.dataset.w];
   else if (el.dataset.s !== undefined) t = +el.dataset.s;
   else if (el.closest('.chap')) t = +el.closest('.chap').dataset.s;
@@ -547,7 +670,7 @@ $('divider').addEventListener('pointerdown', e => {
 // ---------- chapters | notes panel ----------
 let panelTab = CHAPTERS.length ? (PREFS.panel || 'chapters') : 'notes';
 if (!CHAPTERS.length) $('tabChapters').classList.add('hide');
-let notesList = [];
+let notesList = [], noteFilter = 'all';
 function showPanel(which) {
   panelTab = which; $('tabChapters').classList.toggle('on', which === 'chapters'); $('tabNotes').classList.toggle('on', which === 'notes');
   const box = $('plist'); box.textContent = '';
@@ -562,12 +685,31 @@ function showPanel(which) {
     markChapter();
   } else {
     if (!notesList.length) { box.innerHTML = '<div class="empty">No notes yet. Press N to add one.</div>'; return; }
-    notesList.forEach(n => {
-      const it = document.createElement('div'); it.className = 'item';
+    // one-click filter: All · General · Mochi | Open · Resolved (with counts); resolved notes keep their time order
+    const bar = document.createElement('div'); bar.className = 'nfilter';
+    const FILTERS = { all: () => true, general: n => n.category === 'general', mochi: n => n.category === 'mochi',
+                      open: n => !n.resolved, resolved: n => n.resolved };
+    [['all', 'All'], ['general', 'General'], ['mochi', '🃏 Mochi'], null, ['open', 'Open'], ['resolved', '✓ Resolved']].forEach(f => {
+      if (!f) { const sep = document.createElement('span'); sep.className = 'sep'; bar.appendChild(sep); return; }
+      const [k, label] = f;
+      const b = document.createElement('button'); b.className = k === noteFilter ? 'on' : ''; b.dataset.f = k;
+      const cnt = document.createElement('span'); cnt.className = 'cnt'; cnt.textContent = notesList.filter(FILTERS[k]).length;
+      b.append(label, cnt); b.onclick = () => { noteFilter = k; showPanel('notes'); native({ type: 'note-filter', filter: k }); };
+      bar.appendChild(b);
+    });
+    box.appendChild(bar);
+    const shown = notesList.filter(FILTERS[noteFilter] || FILTERS.all);
+    if (!shown.length) { const e = document.createElement('div'); e.className = 'empty';
+      e.textContent = { mochi: 'No Mochi notes.', general: 'No general notes.', open: 'No open notes.', resolved: 'No resolved notes.' }[noteFilter] || 'No notes.';
+      box.appendChild(e); }
+    shown.forEach(n => {
+      const it = document.createElement('div'); it.className = 'item' + (n.resolved ? ' res' : '');
       it.innerHTML = '<span class="it"></span><span><span class="ix"></span></span>';
       it.children[0].textContent = fmt(n.t) + (n.end != null ? '–' + fmt(n.end) : '');
-      it.querySelector('.ix').textContent = n.text;
+      it.querySelector('.ix').textContent = (n.category === 'mochi' ? '🃏 ' : '') + n.text;
+      if (n.resolved) { const c = document.createElement('span'); c.className = 'ick'; c.textContent = '✓'; c.title = 'Resolved'; it.children[1].prepend(c); }
       if (n.quote) { const q = document.createElement('span'); q.className = 'iq'; q.textContent = '“' + n.quote + '”'; it.children[1].appendChild(q); }
+      if (n.resolution) { const r = document.createElement('span'); r.className = 'ires'; r.textContent = '↳ resolved: ' + n.resolution; it.children[1].appendChild(r); }
       it.addEventListener('contextmenu', e => noteMenu(e, n));
       it.onclick = () => {
         seekTo(n.t - 0.3, true);
@@ -615,7 +757,7 @@ function selectedWords() {
   const [p0, w0] = picked[0], [p1, w1] = picked[picked.length - 1];
   // the quote is exactly the selected text (notes, times and headings in between left out)
   const frag = range.cloneContents();
-  frag.querySelectorAll('.notes, .t, .composer, .chap, .note').forEach(n => n.remove());
+  frag.querySelectorAll('.notes, .ncards, .t, .composer, .chap, .note').forEach(n => n.remove());
   const exact = frag.textContent.replace(/\s+/g, ' ').trim();
   return { words: picked, para: p1, start: DATA.t[p0][w0], end: DATA.t[p1][w1],
            quote: exact || picked.map(([p, j]) => DATA.paras[p].w[j]).join(' ') };
@@ -647,59 +789,105 @@ selbtn.addEventListener('click', () => openComposer(selectedWords()));
 
 // ---------- notes (saved in the transcript .md by the app) ----------
 let notesSig = '', composing = null, noteCount = 0;
-const norm = w => String(w).toLowerCase().replace(/[^a-z0-9]/g, '');
-function coveredWords(n) {
-  if (n.time == null) return [];
-  if (n.quote) {
-    // "first words … last words" (a long highlight) or the whole highlight
-    const parts = n.quote.split(' … ');
-    const head = parts[0].split(/\s+/).filter(Boolean).map(norm);
-    const tail = parts.length > 1 ? parts[parts.length - 1].split(/\s+/).filter(Boolean).map(norm) : null;
-    const at = (i, q) => q.every((w, k) => { const f = flat[i + k]; return !!f && norm(DATA.paras[f[0]].w[f[1]]) === w; });
-    for (let i = Math.max(0, lastLE(flatT, n.time - 1.01) - 1); i < flat.length && flatT[i] < n.time + 2; i++) {
-      if (!at(i, head)) continue;
-      if (!tail) return flat.slice(i, i + head.length);
-      const last = n.end != null ? n.end + 2 : n.time + 600;
-      for (let j = i + head.length; j < flat.length && flatT[j] < last; j++) if (at(j, tail)) return flat.slice(i, j + tail.length);
-    }
+// Where each note card goes (core/noteAnchor.ts, served as /note-anchor.js; unit-tested there):
+// after the word it is about, inside its paragraph. No time: at the bottom of the paragraph.
+const WORDS = DATA.paras.map(p => p.w);
+const anchorOf = n => window.noteAnchor ? window.noteAnchor(WORDS, DATA.t, n) : { anchor: -1, cover: [], mark: -1 };
+// The block after word j of paragraph p that holds its note cards (and an open composer); j = -1: the paragraph's bottom box.
+function cardsAt(p, j, make) {
+  if (j < 0) return noteBoxes[p];
+  const w = wordEls[p][j], sp = w.nextSibling;   // the space after the word
+  const next = sp ? sp.nextSibling : null;
+  if (next && next.nodeType === 1 && next.classList.contains('ncards')) return next;
+  if (!make) return null;
+  const box = document.createElement('div'); box.className = 'ncards';
+  (sp || w).after(box);
+  return box;
+}
+// Re-rendering cards must not move what the user is looking at or drop their highlight.
+function holdView() {
+  const s = scroller.getBoundingClientRect(), x = s.left + s.width / 2;
+  let word = null;
+  for (const f of [0.3, 0.15, 0.5, 0.7]) {
+    const hit = document.elementFromPoint(x, s.top + s.height * f), row = hit && hit.closest && hit.closest('.p');
+    if (!row) continue;
+    const ws = wordEls[paraEls.indexOf(row)] || [];
+    word = ws.find(e => e.getBoundingClientRect().bottom > s.top) || ws[0] || null;
+    if (word) break;
   }
-  if (n.end == null) return [];
-  const out = [];
-  for (let i = lastLE(flatT, n.time - 0.01); i < flat.length && flatT[i] < n.end + 1; i++) if (flatT[i] >= n.time) out.push(flat[i]);
-  return out;
+  const sel = window.getSelection();
+  const keep = sel && sel.rangeCount && !sel.isCollapsed && tx.contains(sel.anchorNode)
+    ? { an: sel.anchorNode, ao: sel.anchorOffset, fn: sel.focusNode, fo: sel.focusOffset } : null;
+  return { word, top: word ? word.getBoundingClientRect().top : 0, keep };
+}
+function restoreView(v) {
+  if (v.word && v.word.isConnected) {
+    const d = v.word.getBoundingClientRect().top - v.top;
+    if (Math.abs(d) > 0.5) scroller.scrollTop += d;
+  }
+  const k = v.keep, sel = window.getSelection();
+  if (k && k.an.isConnected && k.fn.isConnected && k.an.nodeType === 3 && k.fn.nodeType === 3 &&
+      (sel.anchorNode !== k.an || sel.anchorOffset !== k.ao || sel.focusNode !== k.fn || sel.focusOffset !== k.fo)) {
+    try { sel.setBaseAndExtent(k.an, k.ao, k.fn, k.fo); } catch (e) {}
+  }
 }
 const tint = (list, on, cls) => list.forEach(([p, j]) => wordEls[p][j].classList.toggle(cls || 'cover', on));
 function renderNotes(list) {
   const sig = JSON.stringify(list); if (sig === notesSig) return; notesSig = sig;
   if (noteCount !== list.length) native({ type: 'notes', count: list.length });
   noteCount = list.length;
-  document.querySelectorAll('.body span.cover').forEach(s => s.classList.remove('cover'));
-  noteBoxes.forEach(b => b.querySelectorAll('.note').forEach(n => n.remove()));
+  const view = holdView();
+  tx.querySelectorAll('.body > span.cover, .body > span.ncov, .body > span.nmark, .body > span.ncovr, .body > span.nmarkr')
+    .forEach(s => s.classList.remove('cover', 'ncov', 'nmark', 'ncovr', 'nmarkr'));
+  tx.querySelectorAll('.note').forEach(n => n.remove());
+  tx.querySelectorAll('.ncards').forEach(b => { if (!b.querySelector('.composer')) b.remove(); });
   notesList = [];
   const perPara = {};
   list.forEach(n => {
+    if (!noteBoxes[n.para]) return;
     const index = perPara[n.para] = (perPara[n.para] ?? -1) + 1;
-    const box = noteBoxes[n.para]; if (!box) return;
     const el = document.createElement('div'); el.className = 'note';
     const t = n.time ?? starts[n.para];
     const ts = document.createElement('span'); ts.className = 'nt';
     ts.textContent = '💬 ' + fmt(t) + (n.end != null ? '–' + fmt(n.end) : ''); ts.dataset.s = t;
-    el.append(ts, document.createTextNode(n.text));
+    const category = n.category === 'mochi' ? 'mochi' : 'general';
+    el.append(ts);
+    if (category === 'mochi') { el.classList.add('mochi'); const b = document.createElement('span'); b.className = 'nbadge'; b.textContent = '🃏 Mochi'; el.appendChild(b); }
+    const body = document.createElement('span'); body.className = 'ntext'; body.textContent = n.text; el.appendChild(body);
     if (n.quote) { const q = document.createElement('span'); q.className = 'nq'; q.textContent = '“' + n.quote + '”'; el.appendChild(q); }
-    const cover = coveredWords(n);
-    if (n.quote || n.end != null) native({ type: 'note-cover', para: n.para, time: n.time, end: n.end, quote: n.quote,
-      covered: cover.map(([p, j]) => DATA.paras[p].w[j]).join(' ') });
-    if (cover.length) {
-      el.addEventListener('mouseenter', () => tint(cover, true));
-      el.addEventListener('mouseleave', () => { if (!el.classList.contains('pinned')) tint(cover, false); });
-      el.addEventListener('click', e => { if (e.target === ts) return;
-        el.classList.toggle('pinned'); tint(cover, el.classList.contains('pinned')); });
+    if (n.resolution) { const r = document.createElement('span'); r.className = 'nres'; r.textContent = '↳ resolved: ' + n.resolution; el.appendChild(r); }
+    const resolved = !!n.resolved;
+    if (resolved) {   // a small ✓ chip; click to see the note
+      el.classList.add('resolved', 'collapsed'); ts.textContent = '✓ ' + ts.textContent.replace('💬 ', '');
+      const chip = document.createElement('span'); chip.className = 'nchip'; chip.textContent = 'resolved'; el.appendChild(chip);
+      el.title = 'Resolved note — click to show';
     }
-    box.insertBefore(el, box.querySelector('.composer'));
-    const entry = { t, end: n.end, text: n.text, quote: n.quote, el, para: n.para, index, time: n.time ?? null };
+    const a = anchorOf(n);
+    a.cover.forEach(([p, j]) => wordEls[p][j].classList.add(resolved ? 'ncovr' : 'ncov'));
+    if (a.mark >= 0) wordEls[n.para][a.mark].classList.add(resolved ? 'nmarkr' : 'nmark');
+    if (n.time != null) native({ type: 'note-cover', para: n.para, time: n.time, end: n.end, quote: n.quote, anchor: a.anchor,
+      anchorWord: a.anchor >= 0 ? DATA.paras[n.para].w[a.anchor] : '', covered: a.cover.map(([p, j]) => DATA.paras[p].w[j]).join(' ') });
+    const hover = a.cover.length ? a.cover : a.mark >= 0 ? [[n.para, a.mark]] : [];
+    if (hover.length) {
+      el.addEventListener('mouseenter', () => tint(hover, true));
+      el.addEventListener('mouseleave', () => { if (!el.classList.contains('pinned')) tint(hover, false); });
+      if (!resolved) el.addEventListener('click', e => { if (e.target === ts) return;
+        el.classList.toggle('pinned'); tint(hover, el.classList.contains('pinned')); });
+    }
+    if (resolved) el.addEventListener('click', e => {
+      if (e.target === ts && !el.classList.contains('collapsed')) return;   // the time seeks once it is open
+      e.stopPropagation();   // expanding / collapsing never seeks
+      el.classList.toggle('collapsed'); el.title = el.classList.contains('collapsed') ? 'Resolved note — click to show' : '';
+    });
+    // several notes on one word: stacked in file order (an open composer stays last)
+    const box = cardsAt(n.para, a.anchor, true);
+    box.insertBefore(el, box.querySelector(':scope > .composer'));
+    const entry = { t, end: n.end, text: n.text, quote: n.quote, el, para: n.para, index, time: n.time ?? null, category,
+                    resolved, resolution: n.resolution || null };
     el.addEventListener('contextmenu', e => noteMenu(e, entry));
     notesList.push(entry);
   });
+  restoreView(view);
   notesList.sort((a, b) => a.t - b.t);
   if (panelTab === 'notes') showPanel('notes');
 }
@@ -722,34 +910,58 @@ function openComposer(sel, edit) {
                          : '💬 note at ' + fmt(time) + ' — Enter to save, Esc to cancel';
   const ta = document.createElement('textarea');
   if (edit) ta.value = edit.text;
-  c.append(hint, ta);
-  // inline, right under the highlighted passage (in its paragraph), or in place of the note being edited
+  // category: one click on a pill, or Tab while typing; a new note starts with the last-used one
+  let category = edit ? edit.category : (PREFS.noteCategory === 'mochi' ? 'mochi' : 'general');
+  const cats = document.createElement('div'); cats.className = 'cats';
+  const pills = [['general', 'General'], ['mochi', '🃏 Mochi']].map(([k, label]) => {
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'cat ' + k; b.dataset.c = k; b.textContent = label;
+    b.title = 'Tab switches General / Mochi';
+    b.addEventListener('mousedown', e => e.preventDefault());   // keep typing in the note
+    b.onclick = () => setCategory(k);
+    cats.appendChild(b); return b;
+  });
+  function setCategory(k) { category = k; pills.forEach(b => b.classList.toggle('on', b.dataset.c === k)); native({ type: 'note-category', category: k }); }
+  pills.forEach(b => b.classList.toggle('on', b.dataset.c === category));
+  const xb = document.createElement('button'); xb.type = 'button'; xb.className = 'cclose'; xb.textContent = '×';
+  xb.title = 'Cancel (Esc)'; xb.setAttribute('aria-label', 'Cancel note');
+  xb.addEventListener('mousedown', e => e.preventDefault());   // keep the focus in the note
+  c.append(cats, hint, ta, xb);
+  // inline where the saved note will appear: after the highlight's last word, or after the word at
+  // this moment (the same place noteAnchor gives the saved note); or in place of the note being edited
   if (edit && edit.el && edit.el.isConnected) { edit.el.after(c); edit.el.style.display = 'none'; }
-  else noteBoxes[para].appendChild(c);
+  else {
+    const last = sel ? sel.words[sel.words.length - 1] : null;
+    const at = last && last[0] === para ? last[1] : anchorOf({ para, time: Math.floor(time) }).anchor;
+    cardsAt(para, at, true).appendChild(c);
+  }
   composing = c; selActive = false; updateBack();
   ta.focus({ preventScroll: true });
   const cr = c.getBoundingClientRect(), sr = scroller.getBoundingClientRect();
   if (cr.bottom > sr.bottom - 20 || cr.top < sr.top) keepInView(c, true);
-  const close = () => { c.remove(); composing = null; updateBack(); if (sel) tint(sel.words, false, 'pending');
+  const close = () => { const box = c.parentElement; c.remove(); if (box && box.classList.contains('ncards') && !box.children.length) box.remove();
+    composing = null; updateBack(); if (sel) tint(sel.words, false, 'pending');
     if (edit && edit.el) edit.el.style.display = ''; if (wasPlaying) togglePlay(); };
+  xb.onclick = () => { native({ type: 'note-cancel', by: 'close-button' }); close(); };
   ta.addEventListener('keydown', async e => {
     e.stopPropagation();
     if (e.key === 'Escape') { e.preventDefault(); close(); }
+    if (e.key === 'Tab') { e.preventDefault(); setCategory(category === 'mochi' ? 'general' : 'mochi'); return; }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault(); const text = ta.value.trim(); if (!text) return close();
       if (edit) {
-        const ok = await noteChange('edit', edit, { newText: text });
+        const ok = await noteChange('edit', edit, { newText: text, category });
         if (ok) { close(); toast('Note updated in .md'); } else close();
         return;
       }
-      const body = { para, time, text };
+      const body = { para, time, text, category };
       if (sel) { body.end = sel.end; body.quote = sel.quote; }
       try {
         const r = await fetch('/api/notes', { method: 'POST', body: JSON.stringify(body) });
         const out = await r.json();
         if (!r.ok) throw new Error(out.error || r.status);
-        close(); renderNotes(out); toast('Note saved to .md');
-        native({ type: 'note-saved', para, time, end: body.end, quote: body.quote, text });
+        close(); renderNotes(out); toast(category === 'mochi' ? 'Mochi note saved to .md' : 'Note saved to .md');
+        if (PREFS.noteCategory !== category) savePrefs({ noteCategory: category });   // the next note starts with this one
+        native({ type: 'note-saved', para, time, end: body.end, quote: body.quote, text, category });
       } catch (err) { toast('Could not save: ' + err.message); native({ type: 'error', message: 'note: ' + err.message }); }
     }
   });
@@ -761,6 +973,12 @@ function noteMenu(e, n) {
   e.preventDefault(); e.stopPropagation();
   menu.innerHTML = '';
   [['Edit note', () => openComposer(null, n)],
+   n.category === 'mochi'
+     ? ['Make General', async () => { if (await noteChange('category', n, { category: 'general' })) toast('Note is General'); }]
+     : ['Make Mochi', async () => { if (await noteChange('category', n, { category: 'mochi' })) toast('Note is 🃏 Mochi'); }],
+   n.resolved
+     ? ['Reopen', async () => { if (await noteChange('resolved', n, { resolved: false })) toast('Note reopened'); }]
+     : ['Mark resolved', async () => { if (await noteChange('resolved', n, { resolved: true })) toast('Note marked resolved'); }],
    ['Copy note', () => { native({ type: 'copy', text: n.text + (n.quote ? '\n“' + n.quote + '”' : '') }); toast('Note copied'); }],
    ['Delete note…', () => confirmDelete(n), 'danger']].forEach(([label, fn, cls]) => {
     const b = document.createElement('button'); b.textContent = label; if (cls) b.className = cls;
@@ -881,8 +1099,8 @@ function handleKey(key, forwarded, repeat, shift) {
     s: () => setSpeed(r - 0.1), d: () => setSpeed(r + 0.1),
     r: () => setSpeed(r === 1 ? lastSpeed : 1),
     g: () => setSpeed(r === favSpeed ? 1 : favSpeed),
-    z: () => seekTo(now() - 10), x: () => seekTo(now() + 10),
-    arrowleft: () => seekTo(now() - 5), arrowright: () => seekTo(now() + 5),
+    z: () => seekTo(now() - 5), x: () => seekTo(now() + 5),
+    arrowleft: () => seekTo(now() - 10), arrowright: () => seekTo(now() + 10),
     v: () => { const b = $('speed'); b.classList.toggle('hide'); savePrefs({ badgeHidden: b.classList.contains('hide') }); },
     f: () => setFollow(!follow),
     n: () => openComposer(selectedWords()),
@@ -908,7 +1126,7 @@ document.addEventListener('mousedown', e => native({ type: 'click', target: e.ta
 // ---------- for the app's menus ----------
 window.FA = { pause, zoom, find: openFind, toggleFocus: () => setFocus(!document.body.classList.contains('focus')),
               state: () => ({ t: now(), paused: P.paused, rate: P.rate, speed, h: P.h, q: P.q, ok: P.ok, para: curP, word: curW }),
-              zoomToast: text => toast(text) };
+              zoomToast: text => toast(text), reloadVideo };
 native({ type: 'ready', paras: DATA.paras.length, chapters: CHAPTERS.length });
 })();
 </script>

@@ -49,6 +49,10 @@ turned into one `-`, trimmed, cut to 80 characters (and a trailing `-` dropped).
 - views: <view_count>
 - uploaded: <YYYYMMDD>
 
+<!-- follow-along guide v1 — rules for agents editing this file (the Follow Along app reads it)
+…  (the short agent guide: see "For agents processing notes" below)
+-->
+
 ---
 
 ## 0:00 <Chapter title>            ← only for videos with YouTube chapters
@@ -78,16 +82,23 @@ nothing.
   the word. No audio analysis. The current phrase is the main highlight (at 2–3× a single word flickers); the
   current word gets an underline.
 - The page is served by a tiny HTTP server in the app's main process (Node `http`, bound to 127.0.0.1, one per
-  open video) on `http://localhost:<random port>/`. It serves the page, `/data.json`, `/api/notes` (GET/POST, `/api/notes/edit`, `/api/notes/delete`),
+  open video) on `http://localhost:<random port>/`. It serves the page, `/data.json`, `/api/notes` (GET/POST, `/api/notes/edit`, `/api/notes/delete`, `/api/notes/category`), `/note-anchor.js`,
   `/api/prefs` and `/api/position`.
 
 ### Why a script is injected into the YouTube iframe
 - The official YouTube IFrame API caps speed at **2×**, and a normal web page cannot touch a cross-origin iframe.
 - Electron's main process can run JavaScript in any frame of a page, cross-origin or not: on every
   `did-frame-finish-load` of the player's WebContents it looks up the frame (`webFrameMain.fromId`) and, if it is a
-  YouTube `/embed/` frame, runs the script there (`frame.executeJavaScript`). A reload of the iframe loads a new
+  YouTube `/embed/` frame, runs the script there (`frame.executeJavaScript`). It also injects on
+  `did-frame-navigate` and on each new subframe's `dom-ready`. A reload of the iframe loads a new
   document, so the script goes in again; it is idempotent per document, and until the page reports a connected
-  player the app also re-checks every frame every 2 s. The script runs **inside** the YouTube iframe. There it finds the `<video>`, sets `playbackRate` directly (any speed, 3× and more; it re-applies
+  player the app also re-checks every frame every 2 s.
+- **Watchdog (the bridge must never stay down):** the page expects a status message ~16×/s. If none comes for
+  more than 2.5 s while the tab is shown, it asks the app to reconnect (`reconnect` message). The app injects into
+  every YouTube frame again; when there is no live YouTube frame (the iframe crashed or went blank) the page
+  reloads the embed at the last known time, playing if it was playing (≈3 s from a crash to the highlight moving
+  again). Still nothing: a "Reconnecting to video…" chip on the video, then a **Reload video** button. The
+  debug log shows `reconnect #n (no status for N ms): …`, `reload-video`, `reconnected`. The script runs **inside** the YouTube iframe. There it finds the `<video>`, sets `playbackRate` directly (any speed, 3× and more; it re-applies
   the rate if YouTube resets it), and talks to the page with `window.parent.postMessage` (allowed across origins):
   status out (time, rate, paused, quality) ~16×/s; commands in (rate, seek, play, pause).
 - It also catches the app's hotkeys inside the iframe (so YouTube's own `F` = fullscreen etc. never fire) and
@@ -131,6 +142,8 @@ Note formats:
 > “manufacturing and all sorts of things. … And so now you can smooth”
 
 > 💬 typed by hand in Obsidian (no time) — belongs to the paragraph above
+
+> 💬 [19:51](https://www.youtube.com/watch?v=ID&t=1191s) #mochi a note to make a flashcard from
 ```
 
 - A **range note** (highlight words, press N or the 💬 Note pill) has start–end times (en dash; the link's `t=` is
@@ -139,16 +152,51 @@ Note formats:
   the last 6.** A highlight inside one second (e.g. one word) is written with a single time: `[19:51]` + quote. With the start and end times that still pins the exact span (find the start
   words at the start time and the end words just before the end time). Older notes with a full-length quote
   parse too.
+- **Category: `#mochi` right after the time = make a flashcard from this note; untagged = general.** The tag
+  is the first token after the time link (or right after `> 💬 ` in a note without a time), read in any case,
+  written as `#mochi`; range notes carry it on the first line, the quote line is unchanged. `#general` is never
+  written, so every older note is general. The player shows a 🃏 Mochi badge; in the composer two pills
+  (General / 🃏 Mochi, Tab flips them) pick it, starting with the last-used one (`noteCategory` in
+  `settings.json`); right-click a note → **Make Mochi / Make General** changes only the tag (atomic write, same
+  check as edit); the Notes tab has All · General · Mochi filter chips.
 - New notes go right under their paragraph, after its existing notes. Every change is an **atomic write**
   (temp file + rename), so Obsidian never sees half a file.
 - Notes typed in Obsidian show up in the player within ~1 s (the page polls; the app re-parses only when the
   file's modified time or size changes).
 - **Editing the transcript text in the `.md` does not change the player** — the words and times come from the
   JSON. Edit notes freely; leave the `[m:ss](…)` lines alone.
-- Right-click a note → **Edit** (inline, keeps time/range/quote), **Copy**, **Delete** (asks "Delete this note?").
+- **In the player a note card shows right after the word it is about** (display only; the `.md` is unchanged):
+  a range note after its last highlighted word (the quote pins the words — first/last words, the ` … ` short
+  form, partial words — else the times), with a soft underline under the covered words; a point note after
+  the word spoken at its time, which gets a small dot; a note without a time at the bottom of its paragraph.
+  Times outside the paragraph clamp to its first/last word; several notes on one word stack in file order. The
+  card is a block inside the paragraph (the words stay one run), is not selectable and never ends up in a
+  quote; the composer opens where the saved note will appear. Logic: `core/noteAnchor.ts` (unit-tested).
+- Right-click a note (in the transcript or the Notes tab) → **Edit** (inline, keeps time/range/quote/tags/resolution; × or Esc cancels), **Make Mochi / Make General**, **Mark resolved / Reopen**, **Copy**, **Delete** (asks "Delete this note?").
   Edit/delete find the note by paragraph + its place among that paragraph's notes **and** check that its text in
   the file is still what the player shows; if the file changed meanwhile you get "Note changed in the file — try
   again" and nothing is touched.
+
+### For agents processing notes
+Each transcript `.md` carries a short guide for agents (an HTML comment after the header list; the app and every
+parser ignore HTML comments). The rules:
+
+- Only act on notes **without** `#resolved`. `#mochi` = make a flashcard from this note.
+- When done: add `#resolved` to the tags right after the time (keep the other tags; lowercase; `#mochi` first)
+  and a line `> ↳ resolved: <what was done>` after the note text, before the `> “quote”` line (or as the last
+  line when there is no quote):
+
+```
+> 💬 [19:51](https://www.youtube.com/watch?v=ID&t=1191s) #mochi #resolved lobotomized = over-specialized
+> ↳ resolved: made Mochi card "lobotomized" in deck Vocab
+> “labbotomized”
+```
+
+- Never delete or reword the user's note text; never touch paragraph lines (`[m:ss](…)`), `## m:ss` chapter
+  headings, the header or the frontmatter. Notes with no time (`> 💬 text`) belong to the paragraph above.
+- In the player a resolved note is a small ✓ chip (click it to see the note, struck through, and the resolution);
+  right-click → **Mark resolved / Reopen** changes only the tag. The Notes tab filters All · General · Mochi ·
+  Open · Resolved.
 
 ### Selecting words
 Selection is the browser's own, character-precise: drag, double-click (one word), triple-click (paragraph),
@@ -244,8 +292,8 @@ paragraphs faded and the current one larger.
 | `G` | favorite speed (2.5) |
 | `V` | show / hide speed badge |
 | `Space` | play / pause |
-| `Z` / `X` | back / forward 10 s |
-| `←` / `→` | back / forward 5 s |
+| `Z` / `X` | back / forward 5 s |
+| `←` / `→` | back / forward 10 s |
 | `N` | new note (pauses while typing; Enter saves; Shift+Enter new line; Esc cancels; resumes after). With words highlighted: a range note |
 | `F` | follow on / off ("Back to now") |
 | `Shift+F` | focus mode |
@@ -270,6 +318,14 @@ Hotkeys are ignored while typing in a note, the find box or a dialog.
   not guess.
 - **Ads** play in the embed like on YouTube; the player shows "· ad" and the transcript waits.
 - **Audio skid on a speed change** was WebKit re-timing the audio (the Swift app). The Electron app does not have it.
+- **The transcript stops following while the video plays** (highlight and auto-scroll frozen, Follow still on,
+  no "Back to now"): seen once in the packaged app. Cause found: while the mouse is down in the transcript nothing
+  in the text changes (so a selection never moves), and only a `mouseup` ended that state — a lost `mouseup`
+  (released over the video frame or another app, a text drag-and-drop, switching apps mid-drag) froze it until
+  a restart. Now it also ends on pointerup/cancel, drag start/end, window blur, the tab hiding, the first mouse
+  move with no button held, and after 20 s at most (`mouse-released` in the debug log). The second way to lose
+  sync — the YouTube iframe crashing or reloading — is covered by the watchdog above. A click in the transcript
+  also takes the keyboard back from the YouTube frame.
 - **A YouTube embed that never reports** (the "connecting…" label stays): the script did not get into the iframe.
   The debug log (`--debug-log`) shows `injected into https://www.youtube.com/embed/<id>` once per iframe load.
 

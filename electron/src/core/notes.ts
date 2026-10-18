@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { atomicWrite } from './atomic'
 import { FollowAlongError } from './errors'
+import { commentMask, ensureGuide } from './guide'
 import { clock } from './transcript'
 import { splitWS, swiftInt, trimWS, trimWSNL } from './text'
 
@@ -16,7 +17,17 @@ import { splitWS, swiftInt, trimWS, trimWSNL } from './text'
  *     > “exact highlighted words here”
  *
  * Notes typed by hand (`> 💬 text`, no time) belong to the paragraph above.
+ *
+ * Tags: right after the time link (or right after `> 💬 ` for a note without a time), space-separated, any
+ * order and case: `#mochi` = make a Mochi flashcard from this note (no tag = general); `#resolved` = done
+ * (no tag = open). Written lowercase, `#mochi` before `#resolved`. An agent that resolves a note may add
+ * `> ↳ resolved: what was done` line(s) after the note text and before the quote line.
+ *
+ *     > 💬 [19:51](https://www.youtube.com/watch?v=ID&t=1191s) #mochi #resolved note text
+ *     > ↳ resolved: made the Mochi card
  */
+export type NoteCategory = 'general' | 'mochi'
+
 export interface Note {
   /** Index of the paragraph the note is under. */
   para: number
@@ -27,10 +38,46 @@ export interface Note {
   text: string
   /** The highlighted words, without the curly quotes. */
   quote: string | null
+  /** `mochi` when the text starts with the `#mochi` tag (not part of `text`), else `general`. */
+  category: NoteCategory
+  /** True with the `#resolved` tag (not part of `text`). */
+  resolved: boolean
+  /** The `> ↳ resolved: …` line(s), without the marker (not part of `text`). */
+  resolution: string | null
 }
 
-export const note = (para: number, time: number | null, text: string, end: number | null = null, quote: string | null = null): Note =>
-  ({ para, time, end, text, quote })
+export const note = (para: number, time: number | null, text: string, end: number | null = null, quote: string | null = null,
+  category: NoteCategory = 'general', resolved = false, resolution: string | null = null): Note =>
+  ({ para, time, end, text, quote, category, resolved, resolution })
+
+export interface NoteTags { mochi: boolean; resolved: boolean }
+
+/** One tag at the start of a note's text (any case), with the spaces after it. */
+const reTag = /^#(mochi|resolved)(?:[ \t]+|$)/i
+/** A resolution line's text (after "> "): `↳ resolved: …`. */
+const reResolution = /^↳\s*resolved:\s?(.*)$/i
+/** A raw resolution line of the file. */
+const reResolutionLine = /^>\s*↳\s*resolved:/i
+
+/** Splits the tags off the start of a note's first-line text. */
+export function splitTags(text: string): NoteTags & { text: string } {
+  const out = { mochi: false, resolved: false, text }
+  for (let m = reTag.exec(out.text); m; m = reTag.exec(out.text)) {
+    if (m[1].toLowerCase() === 'mochi') out.mochi = true
+    else out.resolved = true
+    out.text = out.text.slice(m[0].length)
+  }
+  return out
+}
+
+/** The first-line text with exactly these tags in front, lowercase, `#mochi` first (tags already in `text` are replaced). */
+function withTags(tags: NoteTags, text: string): string {
+  const body = splitTags(text).text
+  const head = [tags.mochi ? '#mochi' : '', tags.resolved ? '#resolved' : ''].filter(Boolean).join(' ')
+  return head === '' ? body : body === '' ? head : head + ' ' + body
+}
+
+const tagsOf = (n: Note): NoteTags => ({ mochi: n.category === 'mochi', resolved: n.resolved })
 
 /** The note as JSON for the player (Swift's Codable leaves out nil values). */
 export function noteJSON(n: Note): Record<string, unknown> {
@@ -39,6 +86,9 @@ export function noteJSON(n: Note): Record<string, unknown> {
   if (n.end !== null) o.end = n.end
   o.text = n.text
   if (n.quote !== null) o.quote = n.quote
+  o.category = n.category
+  o.resolved = n.resolved
+  if (n.resolution !== null) o.resolution = n.resolution
   return o
 }
 
@@ -61,14 +111,21 @@ export const isHeading = (line: string): boolean => reHeading.test(line)
 /** True for a paragraph line: `[m:ss](...&t=Ns) ...`. */
 export const isParagraph = (line: string): boolean => reParagraph.test(line)
 
-export const paragraphCount = (md: string): number => lines(md).filter(isParagraph).length
+/** Paragraph lines of the file, outside HTML comment blocks (the agent guide has example lines). */
+export function paragraphCount(md: string): number {
+  const ls = lines(md), mask = commentMask(ls)
+  return ls.filter((l, i) => !mask[i] && isParagraph(l)).length
+}
 
 /** All notes in the markdown, in file order. */
 export function parse(md: string): Note[] {
   const notes: Note[] = []
   let p = -1
   let current: number | null = null // index into notes of the note being continued
-  for (const line of lines(md)) {
+  const ls = lines(md), mask = commentMask(ls)
+  for (let i = 0; i < ls.length; i++) {
+    const line = ls[i]
+    if (mask[i]) { current = null; continue }   // HTML comments (the agent guide) are never paragraphs or notes
     if (isParagraph(line)) {
       p += 1
       current = null
@@ -84,7 +141,8 @@ export function parse(md: string): Note[] {
         if (t[2] !== undefined) end = seconds(t[2])
         text = t[4] ?? ''
       }
-      notes.push(note(p, time, text, end))
+      const tg = splitTags(text)
+      notes.push(note(p, time, tg.text, end, null, tg.mochi ? 'mochi' : 'general', tg.resolved))
       current = notes.length - 1
       continue
     }
@@ -94,9 +152,17 @@ export function parse(md: string): Note[] {
     }
     current = null
   }
-  // The last line of a range note is the highlighted words in curly quotes.
   for (const n of notes) {
-    const parts = n.text.split('\n')
+    let parts = n.text.split('\n')
+    // `↳ resolved: …` lines (after the first line) are the resolution, not note text.
+    const res: string[] = []
+    parts = parts.filter((l, i) => {
+      const r = i > 0 ? reResolution.exec(l) : null
+      if (r) res.push(r[1] ?? '')
+      return !r
+    })
+    if (res.length) { n.resolution = res.join('\n'); n.text = parts.join('\n') }
+    // The last line of a range note is the highlighted words in curly quotes.
     const q = parts.length >= 2 ? reQuoteLine.exec(parts[parts.length - 1]) : null
     if (q) {
       n.quote = q[1] ?? ''
@@ -108,12 +174,15 @@ export function parse(md: string): Note[] {
 }
 
 /** The note's markdown lines. */
-export function block(base: string, time: number, end: number | null, text: string, quote: string | null): string[] {
+export function block(base: string, time: number, end: number | null, text: string, quote: string | null, category: NoteCategory = 'general'): string[] {
+  // tags typed at the start of the text are kept (they would read back that way anyway)
   const body = trimWSNL(text).replaceAll('\r\n', '\n').split('\n')
   let stamp = clock(time)
   // a range within one second (a single word) is written as a single time
   if (end !== null && clock(end) !== stamp) stamp += '–' + clock(end)
-  const out = [`> 💬 [${stamp}](${base}&t=${Math.trunc(Math.max(0, time))}s) ${body[0]}`]
+  const typed = splitTags(body[0])
+  const first = withTags({ mochi: category === 'mochi' || typed.mochi, resolved: typed.resolved }, body[0])
+  const out = [`> 💬 [${stamp}](${base}&t=${Math.trunc(Math.max(0, time))}s) ${first}`]
   for (const l of body.slice(1)) out.push(l === '' ? '>' : `> ${l}`)
   if (quote !== null) {
     const q = shortQuote(quote)
@@ -133,13 +202,15 @@ export function shortQuote(quote: string): string {
 }
 
 /** Inserts a note under paragraph `paraIndex`, after its text and any notes it has. */
-export function insert(md: string, paraIndex: number, time: number, text: string, end: number | null = null, quote: string | null = null): string {
-  const ls = lines(md)
+export function insert(md: string, paraIndex: number, time: number, text: string, end: number | null = null, quote: string | null = null,
+  category: NoteCategory = 'general'): string {
+  const ls = lines(md), mask = commentMask(ls)
   let p = -1
   let insertAt: number | null = null
   let base: string | null = null
   for (let i = 0; i < ls.length; i++) {
     const line = ls[i]
+    if (mask[i]) continue
     const m = reParagraph.exec(line)
     if (m) {
       if (p === paraIndex) break // reached the next paragraph
@@ -155,14 +226,16 @@ export function insert(md: string, paraIndex: number, time: number, text: string
     }
   }
   if (insertAt === null || base === null) throw new FollowAlongError(`Paragraph ${paraIndex} is not in the file.`)
-  ls.splice(insertAt, 0, '', ...block(base, time, end, text, quote))
+  ls.splice(insertAt, 0, '', ...block(base, time, end, text, quote, category))
   return ls.join('\n')
 }
 
 /** Adds a note to the file with an atomic write, so Obsidian never sees a half-written file. */
-export function addNote(path: string, para: number, time: number, text: string, end: number | null = null, quote: string | null = null): Note[] {
+export function addNote(path: string, para: number, time: number, text: string, end: number | null = null, quote: string | null = null,
+  category: NoteCategory = 'general'): Note[] {
   const md = readFileSync(path, 'utf8')
-  const updated = insert(md, para, time, text, end, quote)
+  // the file is written anyway: it gets the current agent guide too (idempotent)
+  const updated = ensureGuide(insert(md, para, time, text, end, quote, category))
   atomicWrite(path, updated)
   return parse(updated)
 }
@@ -195,8 +268,10 @@ export interface Removed {
 export function find(ls: string[], para: number, index: number): { start: number; end: number; note: Note } | null {
   let p = -1, k = -1
   let i = 0
+  const mask = commentMask(ls)
   while (i < ls.length) {
     const line = ls[i]
+    if (mask[i]) { i += 1; continue }
     if (isParagraph(line)) { p += 1; k = -1; i += 1; continue }
     if (p === para && reNote.test(line)) {
       k += 1
@@ -260,23 +335,56 @@ export function restoreNote(md: string, r: Removed): string {
   return t.join('\n')
 }
 
-/** Replaces the note's text; its time / range link and its quote line stay. */
-export function editNote(md: string, para: number, index: number, text: string, time: number | null, newText: string): string {
-  const ls = lines(md)
-  const f = find(ls, para, index)
-  if (!f) throw new NoteChanged()
-  check(f.note, text, time)
-  const first = ls[f.start]
-  // The part of the first line before the note text: "> 💬 " plus the [time](link) if any.
+/** The note's first line split into "> 💬 " + the [time](link) if any, and the text after it (tag included). */
+function firstLineParts(first: string): { prefix: string; rest: string } {
   const m = reNote.exec(first)
   if (!m || m[1] === undefined) throw new NoteChanged()
   const bodyText = m[1]
   let prefix = first.slice(0, first.length - bodyText.length)
+  let rest = bodyText
   const t = reNoteTime.exec(bodyText)
-  if (t && t[4] !== undefined) prefix += bodyText.slice(0, bodyText.length - t[4].length)
+  if (t && t[4] !== undefined) { prefix += bodyText.slice(0, bodyText.length - t[4].length); rest = t[4] }
+  return { prefix, rest }
+}
+
+/**
+ * Replaces the note's text; its time / range link, tags, resolution lines and quote line stay. Its
+ * category changes only when `category` is given.
+ */
+export function editNote(md: string, para: number, index: number, text: string, time: number | null, newText: string,
+  category?: NoteCategory): string {
+  const ls = lines(md)
+  const f = find(ls, para, index)
+  if (!f) throw new NoteChanged()
+  check(f.note, text, time)
+  const { prefix } = firstLineParts(ls[f.start])
   const newLines = trimWSNL(newText).replaceAll('\r\n', '\n').split('\n')
-  const out = [prefix + newLines[0], ...newLines.slice(1).map((l) => (l === '' ? '>' : `> ${l}`))]
+  const typed = splitTags(newLines[0])
+  const tags = { mochi: category ? category === 'mochi' : f.note.category === 'mochi' || typed.mochi, resolved: f.note.resolved || typed.resolved }
+  const out = [prefix + withTags(tags, newLines[0]), ...newLines.slice(1).map((l) => (l === '' ? '>' : `> ${l}`))]
+  out.push(...ls.slice(f.start + 1, f.end).filter((l) => reResolutionLine.test(l)))
   if (f.note.quote !== null) out.push(`> “${f.note.quote}”`)
   ls.splice(f.start, f.end - f.start, ...out)
   return ls.join('\n')
 }
+
+/** Changes only the tags at the start of a note's first line; every other byte stays. */
+function setTags(md: string, para: number, index: number, text: string, time: number | null, change: Partial<NoteTags>): string {
+  const ls = lines(md)
+  const f = find(ls, para, index)
+  if (!f) throw new NoteChanged()
+  check(f.note, text, time)
+  const now = tagsOf(f.note), next = { ...now, ...change }
+  if (now.mochi === next.mochi && now.resolved === next.resolved) return md
+  const { prefix, rest } = firstLineParts(ls[f.start])
+  ls[f.start] = prefix + withTags(next, rest)
+  return ls.join('\n')
+}
+
+/** Sets a note's category (`#mochi` or no tag). */
+export const setCategory = (md: string, para: number, index: number, text: string, time: number | null, category: NoteCategory): string =>
+  setTags(md, para, index, text, time, { mochi: category === 'mochi' })
+
+/** Marks a note resolved (`#resolved`) or open again; its resolution lines stay. */
+export const setResolved = (md: string, para: number, index: number, text: string, time: number | null, resolved: boolean): string =>
+  setTags(md, para, index, text, time, { resolved })

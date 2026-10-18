@@ -2,7 +2,9 @@ import { clipboard, shell, WebContentsView, webFrameMain, type WebFrameMain } fr
 import { readFileSync, statSync } from 'node:fs'
 import { atomicWrite as atomicWriteText } from '../core/atomic'
 import { device, readProgress, writeProgress } from '../core/progress'
-import { addNote, deleteNote, editNote, NoteChanged, noteJSON, parse as parseNotes } from '../core/notes'
+import { addNote, deleteNote, editNote, NoteChanged, noteJSON, parse as parseNotes, setCategory, setResolved, type NoteCategory } from '../core/notes'
+import { ensureGuide } from '../core/guide'
+import { noteAnchor } from '../core/noteAnchor'
 import { advanceStatus } from '../core/status'
 import { decodeSidecar, type Sidecar } from '../core/transcript'
 import type { TranscriptFolder } from '../core/folderMaker'
@@ -11,6 +13,9 @@ import { json, LocalServer, text, type Request, type Response } from './server'
 import { Settings } from './settings'
 import PLAYER_HTML from './player.html?raw'
 import INJECTED from './injected.js?raw'
+
+// Where a note card goes in the transcript: the same function the unit tests check, served to the page.
+const NOTE_ANCHOR_JS = `window.noteAnchor = (${noteAnchor.toString()});\n`
 
 const EMBED = /^https:\/\/(www\.)?(youtube\.com|youtube-nocookie\.com)\/embed\//
 
@@ -71,8 +76,15 @@ export class PlayerSession {
     })
     // The script that controls the video runs INSIDE the cross-origin YouTube iframe: injected
     // from here into that frame each time it (re)loads. It is idempotent per document.
+    // Every load / navigation of a subframe re-injects (idempotent: the script runs once per document).
     wc.on('did-frame-finish-load', (_e, isMain, processId, routingId) => {
       if (!isMain) this.inject(webFrameMain.fromId(processId, routingId))
+    })
+    wc.on('did-frame-navigate', (_e, _url, _code, _status, isMain, processId, routingId) => {
+      if (!isMain) this.inject(webFrameMain.fromId(processId, routingId), 'navigate')
+    })
+    wc.on('frame-created', (_e, { frame }) => {
+      if (frame && frame !== wc.mainFrame) frame.on('dom-ready', () => this.inject(frame, 'dom-ready'))
     })
     wc.on('did-finish-load', () => this.injectAll())
     wc.on('render-process-gone', (_e, d) => {
@@ -95,17 +107,25 @@ export class PlayerSession {
 
   get pageURL(): string { return `http://localhost:${this.server.port}/` }
 
-  private inject(frame: WebFrameMain | null | undefined): void {
-    if (!frame || frame.isDestroyed?.() || !EMBED.test(frame.url)) return
+  /** Injects the bridge script into a YouTube embed frame; true when the frame is one. */
+  private inject(frame: WebFrameMain | null | undefined, why = 'load'): boolean {
+    try {
+      if (!frame || frame.isDestroyed?.() || !EMBED.test(frame.url)) return false
+    } catch { return false }
     frame.executeJavaScript(INJECTED)
-      .then(() => DebugLog.log(`injected into ${frame.url.split('?')[0]}`))
-      .catch((e: Error) => DebugLog.log(`inject failed: ${e.message}`))
+      .then((r) => DebugLog.log(`injected into ${frame.url.split('?')[0]} (${why}${r === 'already' ? ', already there' : ''})`))
+      .catch((e: Error) => DebugLog.log(`inject failed (${why}): ${e.message}`))
+    return true
   }
 
-  private injectAll(): void {
+  /** Injects into every YouTube embed frame of the page; returns how many there are. */
+  private injectAll(why = 'scan'): number {
+    let n = 0
     try {
-      for (const f of this.view.webContents.mainFrame.framesInSubtree) if (f !== this.view.webContents.mainFrame) this.inject(f)
+      const main = this.view.webContents.mainFrame
+      for (const f of main.framesInSubtree) if (f !== main && this.inject(f, why)) n++
     } catch { /* destroyed */ }
+    return n
   }
 
   /** Runs a page command (window.FA, see player.html). */
@@ -122,6 +142,8 @@ export class PlayerSession {
       case 'GET /':
       case 'GET /index.html':
         return text(PLAYER_HTML, 200, 'text/html; charset=utf-8')
+      case 'GET /note-anchor.js':
+        return text(NOTE_ANCHOR_JS, 200, 'text/javascript; charset=utf-8')
       case 'GET /data.json':
         try { return { status: 200, type: 'application/json; charset=utf-8', body: readFileSync(this.transcript.sidecar) } } catch { return json({ error: 'no sidecar' }, 500) }
       case 'GET /api/notes':
@@ -130,6 +152,8 @@ export class PlayerSession {
         return this.addNote(req.body)
       case 'POST /api/notes/delete':
       case 'POST /api/notes/edit':
+      case 'POST /api/notes/category':
+      case 'POST /api/notes/resolved':
         return this.changeNote(req.path, req.body)
       case 'GET /api/position': {
         // read fresh: another computer may have moved it (the vault syncs)
@@ -167,10 +191,11 @@ export class PlayerSession {
     if (typeof o.para !== 'number' || typeof o.time !== 'number' || typeof o.text !== 'string') return json({ error: 'bad note' }, 400)
     const end = typeof o.end === 'number' ? o.end : null
     const quote = typeof o.quote === 'string' ? o.quote : null
+    const category: NoteCategory = o.category === 'mochi' ? 'mochi' : 'general'
     try {
-      const notes = addNote(this.transcript.markdown, Math.trunc(o.para), o.time, o.text, end, quote)
+      const notes = addNote(this.transcript.markdown, Math.trunc(o.para), o.time, o.text, end, quote, category)
       this.notesCache = null
-      DebugLog.log(`note saved para=${o.para} time=${o.time} end=${end ?? '-'} text=${JSON.stringify(o.text)}`)
+      DebugLog.log(`note saved para=${o.para} time=${o.time} end=${end ?? '-'} category=${category} text=${JSON.stringify(o.text)}`)
       return json(notes.map(noteJSON))
     } catch (e) {
       return json({ error: e instanceof Error ? e.message : String(e) }, 400)
@@ -178,7 +203,7 @@ export class PlayerSession {
   }
 
   /**
-   * Delete / edit of one note. The page sends the note's paragraph, its place among that
+   * Delete / edit / category / resolved change of one note. The page sends the note's paragraph, its place among that
    * paragraph's notes and the text it shows; a mismatch with the file is a 409.
    */
   private changeNote(path: string, body: string): Response {
@@ -190,14 +215,22 @@ export class PlayerSession {
     try {
       const md = readFileSync(file, 'utf8')
       let out: string
+      const category: NoteCategory | undefined = o.category === 'mochi' || o.category === 'general' ? o.category : undefined
       if (path.endsWith('/delete')) {
         out = deleteNote(md, Math.trunc(o.para), Math.trunc(o.index), o.text, time)[0]
+      } else if (path.endsWith('/resolved')) {
+        if (typeof o.resolved !== 'boolean') return json({ error: 'bad request' }, 400)
+        out = setResolved(md, Math.trunc(o.para), Math.trunc(o.index), o.text, time, o.resolved)
+      } else if (path.endsWith('/category')) {
+        if (!category) return json({ error: 'bad category' }, 400)
+        out = setCategory(md, Math.trunc(o.para), Math.trunc(o.index), o.text, time, category)
       } else {
         if (typeof o.newText !== 'string' || o.newText.trim() === '') return json({ error: 'empty note' }, 400)
-        out = editNote(md, Math.trunc(o.para), Math.trunc(o.index), o.text, time, o.newText)
+        out = editNote(md, Math.trunc(o.para), Math.trunc(o.index), o.text, time, o.newText, category)
       }
-      // atomic write (temp file + rename)
-      atomicWriteText(file, out)
+      // atomic write (temp file + rename); nothing to write when nothing changed
+      // the file is written anyway: it gets the current agent guide too (idempotent)
+      if (out !== md) { out = ensureGuide(out); atomicWriteText(file, out) }
       this.notesCache = null
       DebugLog.log(`note ${path.split('/').pop()} ok`)
       return json({ notes: parseNotes(out).map(noteJSON) })
@@ -238,6 +271,13 @@ export class PlayerSession {
     const type = m && typeof m.type === 'string' ? m.type : ''
     if (type === 'copy' && typeof m.text === 'string') clipboard.writeText(m.text)
     if (type === 'connected') this.connected = true
+    // The page heard nothing from the YouTube frame for > 2.5 s: inject again; with no live YouTube
+    // frame (it crashed or went blank) the page reloads the video where it was.
+    if (type === 'reconnect' && !this.closed) {
+      const n = this.injectAll('reconnect')
+      DebugLog.log(`reconnect #${m.tries} (no status for ${m.stale} ms${this.visible ? '' : ', tab hidden'}): ${n ? `re-injected into ${n} frame(s)` : 'no YouTube frame → reload video'}`)
+      if (!n) this.run(`FA.reloadVideo('no-frame')`)
+    }
     // A tab that is not on screen never plays (e.g. a restored tab whose resume seek started it).
     if (type === 'tick' && m.paused === false && !this.visible && Date.now() - this.lastHiddenPause > 2000) {
       this.lastHiddenPause = Date.now()

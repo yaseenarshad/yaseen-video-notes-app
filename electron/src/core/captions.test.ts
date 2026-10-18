@@ -5,6 +5,7 @@ import { format } from './folderMaker'
 import { rollingVTT } from './fixtures'
 import { isParagraph } from './notes'
 import { clock, decodeSidecar, encodeSidecar, endsSentence, folderName, hms, paraStart, paragraphs, parseYouTubeID, slug, videoInfo } from './transcript'
+import { commentMask } from './guide'
 
 describe('CaptionsTests', () => {
   it('rolling captions keep every word once in order', () => {
@@ -91,6 +92,17 @@ describe('TranscriptTests', () => {
 - views: 31804
 - uploaded: 20261017
 
+<!-- follow-along guide v1 — rules for agents editing this file (the Follow Along app reads it)
+- Paragraph lines start with [m:ss](youtube link). Never add, remove, merge, reorder or reword them.
+- Notes go under their paragraph: > 💬 [m:ss](link&t=Ns) text
+  Note on highlighted words: > 💬 [m:ss–m:ss](link&t=Ns) text, then a last line > “quote”
+- Tags right after the time: #mochi = make a flashcard from this note; #resolved = done. No #resolved = open.
+- Only work on notes WITHOUT #resolved. When done: add #resolved (keep other tags) and a line > ↳ resolved: what you did.
+- Hand-typed notes: > 💬 text (no time) under the paragraph.
+- Never delete the user's note text. Leave the header, ## chapter headings and frontmatter alone.
+Full spec: docs/how-it-works.md in github.com/yaseenarshad/video-follow-along-app
+-->
+
 ---
 
 [0:00](https://www.youtube.com/watch?v=dthaDyttHns&t=0s) Last night in Waco, Texas, it is street legal.
@@ -99,8 +111,9 @@ describe('TranscriptTests', () => {
 `)).toBe(true)
     // Words in the .md (without links and dashes) == caption words, in order.
     const mdWords: string[] = []
-    for (const line of made.markdown.split('\n')) {
-      if (!isParagraph(line)) continue
+    const mdLines = made.markdown.split('\n'), inComment = commentMask(mdLines)
+    for (const [i, line] of mdLines.entries()) {
+      if (inComment[i] || !isParagraph(line)) continue
       let ws = line.split(' ').filter((x) => x).slice(1)
       if (ws[0] === '—') ws = ws.slice(1)
       mdWords.push(...ws)
