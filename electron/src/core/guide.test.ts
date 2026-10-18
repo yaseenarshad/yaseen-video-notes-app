@@ -83,4 +83,25 @@ describe('agent guide', () => {
     expect(ensureGuide(twice)).toBe(sampleMD.replace('# Title\n', `# Title\n${GUIDE}\n`))
     expect(count(ensureGuide(twice), 'follow-along guide v')).toBe(1)
   })
+
+  it('the v1 guide already in vault files (old repo link) is replaced in place by the current one', () => {
+    const v1 = `<!-- follow-along guide v1 — rules for agents editing this file (the Follow Along app reads it)
+- Paragraph lines start with [m:ss](youtube link). Never add, remove, merge, reorder or reword them.
+- Notes go under their paragraph: > 💬 [m:ss](link&t=Ns) text
+  Note on highlighted words: > 💬 [m:ss–m:ss](link&t=Ns) text, then a last line > “quote”
+- Tags right after the time: #mochi = make a flashcard from this note; #resolved = done. No #resolved = open.
+- Only work on notes WITHOUT #resolved. When done: add #resolved (keep other tags) and a line > ↳ resolved: what you did.
+- Hand-typed notes: > 💬 text (no time) under the paragraph.
+- Never delete the user's note text. Leave the header, ## chapter headings and frontmatter alone.
+Full spec: docs/how-it-works.md in github.com/yaseenarshad/video-follow-along-app
+-->`
+    const old = sampleMD.replace('- uploaded: 20261017\n\n---\n', `- uploaded: 20261017\n\n${v1}\n\n---\n`)
+    expect(findGuides(old.split('\n')).map((g) => g.version)).toEqual([1])
+    expect(GUIDE_VERSION).toBe(2)
+    const out = ensureGuide(old)
+    expect(out).toBe(withGuide)
+    expect(out).toContain('github.com/yaseenarshad/yaseen-video-notes-app')
+    expect(out).not.toContain('video-follow-along-app')
+    expect(findGuides(out.split('\n')).map((g) => g.version)).toEqual([2])
+  })
 })

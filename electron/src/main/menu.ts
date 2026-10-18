@@ -13,12 +13,12 @@ export function buildMenu(get: () => MainWindow | null): void {
     {
       label: app.name,
       submenu: [
-        { role: 'about', label: 'About Follow Along' },
+        { role: 'about', label: 'About Yaseen Video Notes' },
         { type: 'separator' },
-        { role: 'hide', label: 'Hide Follow Along' },
+        { role: 'hide', label: 'Hide Yaseen Video Notes' },
         { role: 'hideOthers' },
         { type: 'separator' },
-        { role: 'quit', label: 'Quit Follow Along' },
+        { role: 'quit', label: 'Quit Yaseen Video Notes' },
       ],
     },
     {

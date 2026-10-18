@@ -92,7 +92,7 @@ describe('TranscriptTests', () => {
 - views: 31804
 - uploaded: 20261017
 
-<!-- follow-along guide v1 — rules for agents editing this file (the Follow Along app reads it)
+<!-- follow-along guide v2 — rules for agents editing this file (the Yaseen Video Notes app reads it)
 - Paragraph lines start with [m:ss](youtube link). Never add, remove, merge, reorder or reword them.
 - Notes go under their paragraph: > 💬 [m:ss](link&t=Ns) text
   Note on highlighted words: > 💬 [m:ss–m:ss](link&t=Ns) text, then a last line > “quote”
@@ -100,7 +100,7 @@ describe('TranscriptTests', () => {
 - Only work on notes WITHOUT #resolved. When done: add #resolved (keep other tags) and a line > ↳ resolved: what you did.
 - Hand-typed notes: > 💬 text (no time) under the paragraph.
 - Never delete the user's note text. Leave the header, ## chapter headings and frontmatter alone.
-Full spec: docs/how-it-works.md in github.com/yaseenarshad/video-follow-along-app
+Full spec: docs/how-it-works.md in github.com/yaseenarshad/yaseen-video-notes-app
 -->
 
 ---

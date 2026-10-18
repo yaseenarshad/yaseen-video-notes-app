@@ -11,9 +11,9 @@
  * just for the guide.
  */
 
-export const GUIDE_VERSION = 1
+export const GUIDE_VERSION = 2
 
-export const GUIDE = `<!-- follow-along guide v${GUIDE_VERSION} — rules for agents editing this file (the Follow Along app reads it)
+export const GUIDE = `<!-- follow-along guide v${GUIDE_VERSION} — rules for agents editing this file (the Yaseen Video Notes app reads it)
 - Paragraph lines start with [m:ss](youtube link). Never add, remove, merge, reorder or reword them.
 - Notes go under their paragraph: > 💬 [m:ss](link&t=Ns) text
   Note on highlighted words: > 💬 [m:ss–m:ss](link&t=Ns) text, then a last line > “quote”
@@ -21,7 +21,7 @@ export const GUIDE = `<!-- follow-along guide v${GUIDE_VERSION} — rules for ag
 - Only work on notes WITHOUT #resolved. When done: add #resolved (keep other tags) and a line > ↳ resolved: what you did.
 - Hand-typed notes: > 💬 text (no time) under the paragraph.
 - Never delete the user's note text. Leave the header, ## chapter headings and frontmatter alone.
-Full spec: docs/how-it-works.md in github.com/yaseenarshad/video-follow-along-app
+Full spec: docs/how-it-works.md in github.com/yaseenarshad/yaseen-video-notes-app
 -->`
 
 const reGuideStart = /^<!--\s*follow-along guide v(\d+)\b/

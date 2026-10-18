@@ -6,15 +6,15 @@ import * as Notes from '../core/notes'
 import { decodeSidecar, folderName, parseInfoJSON, wordCount } from '../core/transcript'
 
 export const USAGE = `USAGE:
-  Follow Along                                   Open the app.
-  Follow Along --open <folder or .md>            Open the app with that transcript (test mode: tabs / Recent untouched).
-  Follow Along --make <youtube url> --out <dir>  Make the transcript folder (no UI) and print a summary.
-  Follow Along --format <file.vtt> --info <file.info.json> [--md <out.md>]
-                                                 Format captions offline and print a summary.
-  npm run cli -- <same flags>                    The same CLI as plain Node (from electron/).
+  Yaseen Video Notes                                   Open the app.
+  Yaseen Video Notes --open <folder or .md>            Open the app with that transcript (test mode: tabs / Recent untouched).
+  Yaseen Video Notes --make <youtube url> --out <dir>  Make the transcript folder (no UI) and print a summary.
+  Yaseen Video Notes --format <file.vtt> --info <file.info.json> [--md <out.md>]
+                                                       Format captions offline and print a summary.
+  npm run cli -- <same flags>                          The same CLI as plain Node (from electron/).
 OPTIONS:
   --debug-log <path>   Write player events (time, rate, quality, keys, notes) to <path>.
-                       Same as the FOLLOW_ALONG_DEBUG_LOG environment variable.`
+                       Same as the VIDEO_NOTES_DEBUG_LOG environment variable.`
 
 const expand = (p: string): string => resolve(p.startsWith('~/') ? homedir() + p.slice(1) : p)
 /** Like Swift's `standardizedFileURL`: /private/tmp → /tmp (only the printed paths). */

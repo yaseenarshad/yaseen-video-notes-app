@@ -231,7 +231,7 @@ export function encodeSidecar(s: Sidecar): string {
 export function decodeSidecar(text: string): Sidecar {
   const o = JSON.parse(text) as Sidecar
   if (!o || typeof o !== 'object' || typeof o.id !== 'string' || !Array.isArray(o.paras) || !Array.isArray(o.t)) {
-    throw new FollowAlongError('Not a Follow Along sidecar.')
+    throw new FollowAlongError('Not a Yaseen Video Notes sidecar.')
   }
   return o
 }

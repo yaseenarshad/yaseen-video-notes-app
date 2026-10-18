@@ -1,4 +1,8 @@
-# Follow Along — notes for agents
+# Yaseen Video Notes — notes for agents
+
+The app was called **Follow Along** before the rename (repo was `video-follow-along-app`). The file formats keep
+that name on purpose — `.follow-along.json`, `.follow-along-progress.json`, the `follow-along guide vN` comment —
+because existing vault folders depend on them. Do not rename them.
 
 macOS app, **Electron 43** (TypeScript, electron-vite, React for the shell — the same stack as
 yaseen-docs-app), in [`electron/`](electron/). The user pastes a YouTube link; the app gets the captions
@@ -19,11 +23,18 @@ npm install                                   # once (Electron 43.4.1)
 npm run dev                                   # the app from source (electron-vite dev, hot reload of the shell)
 npm test                                      # unit tests (vitest; ported from the Swift tests, must pass)
 npm run typecheck
-npm run package                               # → electron/dist/Follow Along.app (bundle id com.yaseen.followalong, signed)
+npm run package                               # → electron/dist/Yaseen Video Notes.app (bundle id com.yaseen.videonotes, signed)
+npm run install-app                           # package + quit the running app + replace /Applications/Yaseen Video Notes.app + open it
 npm run cli -- --make <url> --out <dir>       # headless folder creation (plain Node; needs `npm run build` first)
-"dist/Follow Along.app/Contents/MacOS/Follow Along" --make <url> --out <dir>      # same CLI from the packaged app
-"dist/Follow Along.app/Contents/MacOS/Follow Along" --open <folder> --debug-log <file>   # one video, event log
+"dist/Yaseen Video Notes.app/Contents/MacOS/Yaseen Video Notes" --make <url> --out <dir>      # same CLI from the packaged app
+"dist/Yaseen Video Notes.app/Contents/MacOS/Yaseen Video Notes" --open <folder> --debug-log <file>   # one video, event log
 ```
+
+**Shipping a change to the user:** `npm run install-app` (`scripts/install-app.mjs`). It packages, quits the running
+installed copy (`com.yaseen.videonotes`; waits for it to exit), replaces `/Applications/Yaseen Video Notes.app` with
+the fresh build (copied with `ditto`, not a symlink) and opens it. The first time it also quits a running old
+"Follow Along" (`com.yaseen.followalong`) so its tabs are saved before the new app copies its settings.
+Environment variables are `VIDEO_NOTES_*` (`DEBUG_LOG`, `USER_DATA`, `MUTE`, `NO_IMPORT`); the old `FOLLOW_ALONG_*` names still work.
 
 Homebrew tools need full paths in agent shells (`/opt/homebrew/bin/node`, `/opt/homebrew/bin/yt-dlp`).
 Do not commit unless asked.
@@ -37,6 +48,7 @@ Do not commit unless asked.
   - `guide.ts` — the agent guide comment written into each `.md` (the only copy of its text) + HTML-comment masking
   - `noteAnchor.ts` — where a note card shows in the player (after the word it is about); self-contained,
     served to the page as `/note-anchor.js` via `toString()`, so keep it free of imports and outside helpers
+  - `migrate.ts` — first launch under the new name: copies the old `Follow Along/settings.json` once (read-only on the old folder)
   - `folderMaker.ts` — yt-dlp runner, make / reuse / set up folders, New Tab folder list
   - `status.ts` — per-video status in the yaseen-docs-app format; `progress.ts` — the resume file
   - `text.ts` — Swift-compatible whitespace / trimming / number parsing (byte-identical output)
@@ -51,7 +63,7 @@ Do not commit unless asked.
 - `preload/` — `shell.ts` (window.fa, typed IPC) and `player.ts` (window.faNative.post)
 - `renderer/` — the shell: `TabBar.tsx` (the yaseen-docs-app tab bar look), `NewTab.tsx` (Finder-style New Tab page)
 - `cli/` — the CLI (`run.ts`, used by both the app binary and `cli.js`)
-- `scripts/` — `package.mjs` (packaging + signing)
+- `scripts/` — `package.mjs` (packaging + signing), `install-app.mjs` (package + install into /Applications + open)
 
 ## Rules that must not break
 

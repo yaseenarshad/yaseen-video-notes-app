@@ -9,8 +9,9 @@ import { DebugLog } from './debugLog'
 /**
  * App settings (the Swift app kept these in UserDefaults `com.yaseenarshad.followalong`):
  * player prefs, pinned folders, Recent, open tabs, app zoom, window bounds. One JSON file in the
- * app's userData folder, written atomically. On the first launch the Swift app's settings are
- * copied over (read-only on its defaults), so the sidebar, Recent and player prefs carry over.
+ * app's userData folder, written atomically. On the first launch under the name Yaseen Video Notes the
+ * settings.json of the app's old name ("Follow Along") is copied over (`core/migrate.ts`, marked as
+ * already imported). Only without any settings are the Swift app's copied over (read-only on its defaults).
  */
 export interface Recent { title: string; folder: string; url: string; opened: number }
 
@@ -82,7 +83,7 @@ class SettingsStore {
 
   // ---------- folders ----------
 
-  get outputParent(): string { return this.d.outputParent ?? join(homedir(), 'Documents/Follow Along') }
+  get outputParent(): string { return this.d.outputParent ?? join(homedir(), 'Documents/Yaseen Video Notes') }
   set outputParent(v: string) { this.d.outputParent = v; this.save() }
 
   /** Folders pinned in the New Tab sidebar (the output folder by default). */

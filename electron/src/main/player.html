@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="strict-origin-when-cross-origin">
-<title>Follow Along</title>
+<title>Yaseen Video Notes</title>
 <style>
   /* Contrast (WCAG) on the page background — light / dark: body text 16.2 / 14.2, past paragraphs
      12+ / 11+, timestamps and meta 5.7 / 6.8, current phrase text on its highlight 13.5 / 12.0,
@@ -588,13 +588,13 @@ function pause() { if (!P.paused) togglePlay(); else sendPos(false); }
 // Clicks vs. text selection: a plain click (no movement, nothing selected) seeks to the word,
 // after a short wait so a double-click (select one word) or triple-click never seeks.
 // A drag, a double/triple click and a Shift+click select text the normal way.
-let downAt = null, dragged = false, pendingSeek = null;
+let downAt = null, dragged = false, pendingSeek = null, pillPress = false;
 const hasSelection = () => { const s = window.getSelection(); return !!s && !s.isCollapsed && tx.contains(s.anchorNode); };
 const selecting = () => downAt !== null || hasSelection();
 tx.addEventListener('mousedown', e => {
   // a click in the transcript takes the keys back from the YouTube frame (even a dead one)
   if (document.activeElement === frame) { try { frame.blur(); } catch (err) {} window.focus(); }
-  if (e.button === 0) { downAt = { x: e.clientX, y: e.clientY, at: performance.now() }; dragged = false; }
+  if (e.button === 0) { downAt = { x: e.clientX, y: e.clientY, at: performance.now() }; dragged = false; pillPress = true; }
 });
 // "Mouse is down" must always end: a lost mouseup (released over the video frame or another app, a text
 // drag-and-drop, switching apps mid-drag) used to freeze the highlight and auto-scroll for good.
@@ -602,6 +602,8 @@ function mouseDone(why) {
   if (downAt === null) return;
   const held = performance.now() - downAt.at; downAt = null;
   if (why !== 'mouseup') native({ type: 'mouse-released', why, held: Math.round(held) });
+  // the 💬 Note pill waits for the mouse to let go; without a mouseup it shows at the selection's focus
+  if (why !== 'mouseup' && why !== 'pointerup') { pillPress = false; clearTimeout(placeSelButton.t); placeSelButton.t = setTimeout(placeSelButton, 120); }
 }
 document.addEventListener('mousemove', e => {
   if (!downAt) return;
@@ -764,22 +766,85 @@ function selectedWords() {
 }
 const selbtn = $('selbtn');
 let selActive = false;
+// The 💬 Note pill shows next to where the mouse let go of the selection (a long or bottom-to-top drag
+// never sends it far from the pointer or off screen); for keyboard selections (Shift+arrows) and
+// double/triple clicks, at the selection's moving end (its focus). It stays on that spot in the text while
+// scrolling and hides while the spot is out of view. Where the note itself goes is unchanged (noteAnchor).
+let pillAt = null;   // { range: a collapsed Range at the spot, dx, dy: the pointer from that caret (mouse) or null, key }
+const selKey = sel => sel && sel.rangeCount ? [sel.anchorNode, sel.anchorOffset, sel.focusNode, sel.focusOffset] : null;
+const sameKey = (a, b) => !!a && !!b && a.every((v, i) => v === b[i]);
+function caretRect(range) {
+  if (!range || !range.startContainer.isConnected) return null;
+  const rs = range.getClientRects(), r = rs.length ? rs[0] : range.getBoundingClientRect();
+  return r && r.height > 0 ? r : null;
+}
+function focusAnchor(sel) {
+  const range = document.createRange();
+  if (sel.focusNode && sel.focusNode.nodeType === 3 && tx.contains(sel.focusNode)) {
+    range.setStart(sel.focusNode, sel.focusOffset);
+    if (caretRect(range)) return { range, dx: null, dy: null, key: selKey(sel) };
+  }
+  // the focus is not in text (a triple click ends at the start of the next block): the edge of the
+  // highlighted words on the focus side
+  const s = selectedWords();
+  if (!s) return null;
+  const r0 = sel.getRangeAt(0);
+  const forward = r0.endContainer === sel.focusNode && r0.endOffset === sel.focusOffset;
+  const [p, j] = forward ? s.words[s.words.length - 1] : s.words[0];
+  const t = wordEls[p][j].firstChild;
+  if (!t || t.nodeType !== 3) return null;
+  range.setStart(t, forward ? t.length : 0);
+  return { range, dx: null, dy: null, key: selKey(sel) };
+}
+function mouseAnchor(sel, x, y) {
+  const box = scroller.getBoundingClientRect();
+  if (x < box.left || x > box.right || y < box.top || y > box.bottom) return null;   // let go outside the transcript
+  const range = document.caretRangeFromPoint(x, y);
+  if (!range || !tx.contains(range.startContainer)) return null;
+  const r = caretRect(range);
+  return r ? { range, dx: x - r.left, dy: y - r.top, key: selKey(sel) } : null;
+}
+// a press that began in the transcript: place the pill where it ends
+document.addEventListener('mouseup', e => {
+  if (e.button !== 0 || !pillPress) return;
+  pillPress = false;
+  const x = e.clientX, y = e.clientY, clicks = e.detail;
+  setTimeout(() => {
+    const sel = window.getSelection();
+    if (composing || !hasSelection()) return;
+    pillAt = (clicks < 2 && mouseAnchor(sel, x, y)) || focusAnchor(sel);
+    clearTimeout(placeSelButton.t); placeSelButton();
+  }, 0);
+}, true);
 function placeSelButton() {
   const s = composing ? null : selectedWords();
   selActive = !!s; updateBack();
-  if (!s) { selbtn.classList.remove('show'); return; }
-  // anchor at the END of the selection: the last line box of the range
-  const range = window.getSelection().getRangeAt(0);
-  const rects = Array.from(range.getClientRects()).filter(r => r.width > 1 && r.height > 1);
-  const r = rects.length ? rects[rects.length - 1] : range.getBoundingClientRect();
+  // while the mouse is down the pill waits (it shows where the mouse lets go)
+  if (!s || downAt !== null) { selbtn.classList.remove('show'); return; }
+  const sel = window.getSelection();
+  // a selection made or changed without the mouse (keys, or after it was placed): its focus
+  if (!pillAt || !sameKey(pillAt.key, selKey(sel)) || !caretRect(pillAt.range)) pillAt = focusAnchor(sel);
+  const r = pillAt && caretRect(pillAt.range);
+  if (!r) { selbtn.classList.remove('show'); return; }
   const box = scroller.getBoundingClientRect();
   selbtn.classList.add('show');
   const bw = selbtn.offsetWidth || 80, bh = selbtn.offsetHeight || 28;
-  let x = r.right + 6, y = r.top + (r.height - bh) / 2;
-  if (x + bw > box.right - 8) { x = Math.max(box.left + 8, r.right - bw); y = r.bottom + 6; }   // no room on the right: just below the end
+  let x, y;
+  if (pillAt.dx !== null) {
+    // below and right of the pointer, so the words under it stay visible; flipped near the edges
+    const px = r.left + pillAt.dx, py = r.top + pillAt.dy;
+    x = px + 14; y = py + 10;
+    if (x + bw > box.right - 8) x = px - bw - 14;
+    if (y + bh > box.bottom - 4) y = py - bh - 10;
+  } else {
+    // right of the focus, on its line; no room on the right: just below it
+    x = r.left + 6; y = r.top + (r.height - bh) / 2;
+    if (x + bw > box.right - 8) { x = r.left - bw; y = r.bottom + 6; }
+  }
+  // hidden while the spot is scrolled out of view; back when it returns
   const out = r.bottom < box.top || r.top > box.bottom;
   selbtn.style.visibility = out ? 'hidden' : 'visible';
-  selbtn.style.left = Math.round(x) + 'px';
+  selbtn.style.left = Math.round(Math.max(box.left + 8, Math.min(box.right - bw - 8, x))) + 'px';
   selbtn.style.top = Math.round(Math.max(box.top + 4, Math.min(box.bottom - bh - 4, y))) + 'px';
 }
 document.addEventListener('selectionchange', () => { clearTimeout(placeSelButton.t); placeSelButton.t = setTimeout(placeSelButton, 120); });

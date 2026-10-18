@@ -1,4 +1,7 @@
-# How Follow Along works
+# How Yaseen Video Notes works
+
+(The app was called **Follow Along** until it was renamed; that is why its files are named
+`.follow-along.json`, `.follow-along-progress.json` and the agent guide is `follow-along guide vN`. Those names stay.)
 
 Plain-language notes on what the app does and why it does it that way. Code paths are in
 [CLAUDE.md](../CLAUDE.md).
@@ -11,7 +14,7 @@ folders it made use the same files (see "Files from the old Swift version" at th
 
 ## 1. The pipeline: link → folder
 
-1. **You paste a YouTube link** (New Tab page, or `Follow Along --make <url> --out <dir>`).
+1. **You paste a YouTube link** (New Tab page, or `Yaseen Video Notes --make <url> --out <dir>`).
 2. **yt-dlp gets the captions and the metadata — not the video.** It is free, needs no login, and the app runs:
    `yt-dlp --skip-download --write-subs --write-auto-subs --sub-lang "en,en-US,en-orig" --sub-format vtt --write-info-json --extractor-args "youtube:player_client=tv,web,android" -o "<tmp>/%(id)s.%(ext)s" <url>`
    into a temp folder. The binary is looked up in `/opt/homebrew/bin`, `~/Library/Python/3.*/bin`, `/usr/local/bin`.
@@ -49,7 +52,7 @@ turned into one `-`, trimmed, cut to 80 characters (and a trailing `-` dropped).
 - views: <view_count>
 - uploaded: <YYYYMMDD>
 
-<!-- follow-along guide v1 — rules for agents editing this file (the Follow Along app reads it)
+<!-- follow-along guide v2 — rules for agents editing this file (the Yaseen Video Notes app reads it)
 …  (the short agent guide: see "For agents processing notes" below)
 -->
 
@@ -68,7 +71,7 @@ the app does not create them and works with them there.
 If a folder for the same video already exists in the parent (found by its `.follow-along.json` id or the `- url:`
 line), it is reused and nothing in it is overwritten. Folders made by the older tool (a plain, unformatted
 transcript `.md` with a `- url:` line, no `.follow-along.json`) show as **needs setup**: opening one gets the
-captions and asks **"Format this transcript for Follow Along?"**. Yes rewrites the body as timestamped
+captions and asks **"Format this transcript for Yaseen Video Notes?"**. Yes rewrites the body as timestamped
 paragraphs (keeping the frontmatter and header) and keeps the original as `<slug>.original.md`; Cancel changes
 nothing.
 
@@ -146,6 +149,10 @@ Note formats:
 > 💬 [19:51](https://www.youtube.com/watch?v=ID&t=1191s) #mochi a note to make a flashcard from
 ```
 
+- The **💬 Note pill** shows next to where the mouse let go of the selection (offset so it does not cover the
+  words under the pointer, kept inside the transcript); for Shift+arrow selections and double/triple clicks, next
+  to the selection's moving end. It stays on that spot while scrolling and hides while the spot is out of view.
+  The composer and the saved note still go after the last selected word.
 - A **range note** (highlight words, press N or the 💬 Note pill) has start–end times (en dash; the link's `t=` is
   the start; the times are the first and last word the selection touches, partial words count) and a last line
   with **exactly the selected text** in curly quotes: **all of it if ≤ 15 words, else the first 6 words + ` … ` +
@@ -267,15 +274,22 @@ value:
 - The New Tab page is a Finder-style browser: sidebar (Recent, In progress, pinned folders like learning-log,
   Add Folder…, Other Folder…), a paste-a-link field with the destination folder chip, and a sortable table
   (Title, Date, Progress, Status, Notes), optionally grouped by status. Enter or double-click opens.
-- Settings live in `~/Library/Application Support/Follow Along/settings.json` (written atomically): speed,
+- Settings live in `~/Library/Application Support/Yaseen Video Notes/settings.json` (written atomically): speed,
   favorite/last speed, transcript text size, focus mode, divider position, side-panel tab, app zoom (`uiScale`),
-  pinned folders, Recent, open tabs, window size. (On its very first launch the app also copies settings from
-  the old Swift app's UserDefaults, `com.yaseenarshad.followalong`, if any exist — read only.)
+  pinned folders, Recent, open tabs, window size. On the first launch under the new name, when that file does
+  not exist yet, `~/Library/Application Support/Follow Along/settings.json` (the old name's) is copied over once
+  (`core/migrate.ts`; the old folder is only read). The rest of the old folder is Chromium cache and a few
+  YouTube visitor cookies: the app never signs in to YouTube, and Chromium encrypts cookies with a keychain key
+  named after the app, so they are not carried over. (Only with no settings at all does the app copy the old
+  Swift app's UserDefaults, `com.yaseenarshad.followalong`, if any exist — read only. Copied settings are marked
+  as already imported, so that never runs again.)
 - App zoom (⌘+ / ⌘− / ⌘0, View → Zoom In / Zoom Out / Actual Size) scales the whole window, 80–200 % — the
   tab strip, the New Tab page and every player (`webContents.setZoomFactor`); it is kept across launches. The
   transcript-only text size is the A− / A+ buttons.
-- Packaging: `npm run package` → `electron/dist/Follow Along.app`, bundle id `com.yaseen.followalong`, signed with the self-signed "Yaseen Local
-  Signing" certificate when the keychain has it (ad-hoc otherwise), like yaseen-docs-app.
+- Packaging: `npm run package` → `electron/dist/Yaseen Video Notes.app`, bundle id `com.yaseen.videonotes` (before the
+  rename: `Follow Along.app`, `com.yaseen.followalong`), signed with the self-signed "Yaseen Local Signing"
+  certificate when the keychain has it (ad-hoc otherwise), like yaseen-docs-app. `npm run install-app` packages,
+  quits the running copy, replaces `/Applications/Yaseen Video Notes.app` (a real copy, `ditto`) and opens it.
 
 ### Readability (player colors)
 WCAG contrast on the page background, light / dark: body text 16.2 / 14.2, past paragraphs 11.9 / 10.7,

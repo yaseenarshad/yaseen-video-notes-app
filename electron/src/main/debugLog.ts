@@ -1,7 +1,7 @@
 import { appendFile, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 
-/** Appends player events to a log file when --debug-log (or FOLLOW_ALONG_DEBUG_LOG) is set. */
+/** Appends player events to a log file when --debug-log (or VIDEO_NOTES_DEBUG_LOG; the old FOLLOW_ALONG_DEBUG_LOG works too) is set. */
 export class DebugLog {
   private static path: string | null = null
   private static queue: Promise<void> = Promise.resolve()

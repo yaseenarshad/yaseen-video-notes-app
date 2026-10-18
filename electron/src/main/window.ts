@@ -46,7 +46,7 @@ export class MainWindow {
     this.win = new BaseWindow({
       width: 1440, height: 900, minWidth: 620, minHeight: 480,
       ...(visible ? b : {}),
-      title: 'Follow Along',
+      title: 'Yaseen Video Notes',
       show: false,
       backgroundColor: nativeTheme.shouldUseDarkColors ? '#1c1c1f' : '#fbfaf7',
     })
@@ -91,7 +91,7 @@ export class MainWindow {
     if (this.closing) return
     this.shell.webContents.send('shell:state', this.state())
     const t = this.activeTab
-    this.win.setTitle(t ? t.title : 'Follow Along')
+    this.win.setTitle(t ? t.title : 'Yaseen Video Notes')
   }
 
   work(e: WorkEvent): void { if (!this.closing) this.shell.webContents.send('shell:work', e) }
@@ -295,8 +295,8 @@ export class MainWindow {
     DebugLog.log(`asking to format ${need.markdown}`)
     const r = await dialog.showMessageBox(this.dialogParent(), {
       type: 'question',
-      message: 'Format this transcript for Follow Along?',
-      detail: `${basename(need.markdown)} is a plain transcript. Follow Along will rewrite it as timestamped paragraphs (the header and any frontmatter stay at the top). The original is kept as ${basename(need.backup)}.`,
+      message: 'Format this transcript for Yaseen Video Notes?',
+      detail: `${basename(need.markdown)} is a plain transcript. Yaseen Video Notes will rewrite it as timestamped paragraphs (the header and any frontmatter stay at the top). The original is kept as ${basename(need.backup)}.`,
       buttons: ['Format', 'Cancel'],
       defaultId: 0,
       cancelId: 1,

@@ -156,7 +156,7 @@ export function existingFolder(id: string, parent: string): string | null {
 /** Thrown by `ensure(allowFormat: false)` when the .md is a plain transcript from another tool: formatting it rewrites the file, so ask first. */
 export class NeedsFormatting extends Error {
   constructor(public folder: string, public markdown: string, public backup: string) {
-    super(`${basename(markdown)} is not formatted for Follow Along yet.`)
+    super(`${basename(markdown)} is not formatted for Yaseen Video Notes yet.`)
     this.name = 'NeedsFormatting'
   }
 }

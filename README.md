@@ -1,4 +1,7 @@
-# Follow Along
+# Yaseen Video Notes
+
+(Called **Follow Along** before; that is why its files are named `.follow-along.json` and
+`.follow-along-progress.json`.)
 
 A macOS app for watching YouTube talks and podcasts at 2–3× with a transcript that follows the
 video (current phrase highlighted, auto-scroll) and quick notes that are saved inside the
@@ -24,16 +27,23 @@ cd electron
 npm install                 # Electron 43.4.1, electron-vite, React, vitest
 npm run dev                 # run from source
 npm test                    # unit tests (formatter, notes, chapters, edits, progress, status)
-npm run package             # → electron/dist/Follow Along.app (signed with "Yaseen Local Signing" if present)
-open "dist/Follow Along.app"
+npm run package             # → electron/dist/Yaseen Video Notes.app (signed with "Yaseen Local Signing" if present)
+npm run install-app         # package, quit the running app, replace /Applications/Yaseen Video Notes.app, open it
 ```
 
-The packaged app's bundle id is `com.yaseen.followalong`.
+**Shipping a change:** `npm run install-app` is the way to put a change in front of the user. It packages the
+app, quits the running installed copy (it saves its tabs and positions on quit), replaces
+`/Applications/Yaseen Video Notes.app` with the fresh build (a real copy made with `ditto`, not a symlink) and
+opens it.
+
+The packaged app's bundle id is `com.yaseen.videonotes` (it was `com.yaseen.followalong` as Follow Along).
+Settings live in `~/Library/Application Support/Yaseen Video Notes/`; on the first launch the old
+`Follow Along/settings.json` is copied over once (pinned folders, open tabs, Recent, speed, …).
 
 Headless / test modes (no UI):
 
 ```bash
-FA="dist/Follow Along.app/Contents/MacOS/Follow Along"
+FA="dist/Yaseen Video Notes.app/Contents/MacOS/Yaseen Video Notes"
 "$FA" --make "https://www.youtube.com/watch?v=dthaDyttHns" --out /tmp/some-dir   # make the folder, print a summary
 "$FA" --format captions.en.vtt --info video.info.json [--md out.md]            # format offline
 "$FA" --open /path/to/video-folder --debug-log /tmp/fa.log                       # open one video, log player events

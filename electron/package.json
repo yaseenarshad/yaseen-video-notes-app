@@ -1,9 +1,9 @@
 {
-  "name": "follow-along",
-  "productName": "Follow Along",
+  "name": "yaseen-video-notes",
+  "productName": "Yaseen Video Notes",
   "private": true,
   "version": "0.2.0",
-  "description": "Follow Along: watch YouTube talks at 2–3× with a transcript that follows the video, notes saved in the transcript markdown (Electron)",
+  "description": "Yaseen Video Notes (formerly Follow Along): watch YouTube talks at 2–3× with a transcript that follows the video, notes saved in the transcript markdown (Electron)",
   "author": "Yasin Arshad",
   "main": "out/main/index.js",
   "scripts": {
@@ -12,6 +12,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "package": "node scripts/package.mjs",
+    "install-app": "node scripts/install-app.mjs",
     "cli": "node out/main/cli.js"
   },
   "devDependencies": {
@@ -29,8 +30,8 @@
     "vitest": "3.2.7"
   },
   "build": {
-    "appId": "com.yaseen.followalong",
-    "productName": "Follow Along",
+    "appId": "com.yaseen.videonotes",
+    "productName": "Yaseen Video Notes",
     "directories": {
       "output": "dist-builder"
     },
