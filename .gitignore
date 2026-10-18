@@ -1,0 +1,12 @@
+# Electron app build output (also ignored in electron/.gitignore)
+electron/node_modules/
+electron/out/
+electron/dist/
+electron/dist-builder/
+
+# macOS
+.DS_Store
+
+# Local agent files and working notes stay on this computer.
+.claude/*
+thoughts/

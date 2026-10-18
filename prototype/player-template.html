@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Follow-Along Player</title>
+<style>
+  :root {
+    --bg: #faf9f6; --panel: #ffffff; --ink: #1d1d1b; --muted: #8a877f; --faint: #c9c5bb;
+    --line: #e8e5de; --accent: #d9480f; --hl: #fff1c2; --hl-word: #ffd666; --past: #6f6c65;
+    --note: #eef4ff; --note-edge: #6b8fd6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #151514; --panel: #1d1d1b; --ink: #ecebe6; --muted: #8f8c84; --faint: #4a4843;
+      --line: #2b2a27; --accent: #ff7a3d; --hl: #2f2a1a; --hl-word: #8a6a12; --past: #a19e96;
+      --note: #1c2433; --note-edge: #6b8fd6;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #151514; --panel: #1d1d1b; --ink: #ecebe6; --muted: #8f8c84; --faint: #4a4843;
+    --line: #2b2a27; --accent: #ff7a3d; --hl: #2f2a1a; --hl-word: #8a6a12; --past: #a19e96;
+    --note: #1c2433; --note-edge: #6b8fd6;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--ink); }
+  body { font: 17px/1.65 Georgia, "Iowan Old Style", serif; }
+
+  .app { display: grid; grid-template-columns: minmax(380px, 46%) 1fr; height: 100vh; }
+  .left { padding: 24px; border-right: 1px solid var(--line); display: flex; flex-direction: column; gap: 14px; overflow: auto; }
+  .video { position: relative; aspect-ratio: 16/9; background: #000; border-radius: 10px; overflow: hidden; }
+  .video video { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .speed { position: absolute; top: 10px; left: 10px; font: 600 13px ui-monospace, monospace; color: #fff;
+    background: rgba(0,0,0,.55); padding: 3px 8px; border-radius: 6px; pointer-events: none; }
+  .speed.hide { display: none; }
+  h1 { font: 600 19px/1.35 system-ui, sans-serif; margin: 4px 0 0; }
+  .meta { font: 13px system-ui, sans-serif; color: var(--muted); }
+  .bar { display: flex; gap: 8px; flex-wrap: wrap; font: 13px system-ui, sans-serif; }
+  .bar button { font: inherit; padding: 7px 12px; border-radius: 999px; border: 1px solid var(--line);
+    background: var(--panel); color: var(--ink); cursor: pointer; }
+  .bar button.on { border-color: var(--accent); color: var(--accent); }
+  .help { font: 13px/1.75 system-ui, sans-serif; color: var(--muted); margin-top: auto; }
+  .help b { color: var(--ink); font-weight: 600; }
+  kbd { font: 12px ui-monospace, monospace; border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; color: var(--ink); }
+
+  .right { overflow-y: auto; position: relative; }
+  .tx { max-width: 720px; margin: 0 auto; padding: 40vh 32px 60vh; }
+  .p { display: grid; grid-template-columns: 58px 1fr; gap: 10px; padding: 8px 12px; margin: 0 -12px;
+    border-radius: 8px; transition: background .25s; }
+  .p .t { font: 12px/2.3 ui-monospace, monospace; color: var(--muted); cursor: pointer; text-align: right; }
+  .p .t:hover { color: var(--accent); }
+  .p.turn { margin-top: 14px; }
+  .p.turn .body::before { content: "— "; color: var(--faint); }
+  .p.past .body { color: var(--past); }
+  .p.active { background: var(--hl); }
+  .p.active .body span { color: var(--muted); }
+  .p.active .body span.said { color: var(--ink); }
+  .p.active .body span.now { color: var(--ink); background: var(--hl-word); border-radius: 3px; box-shadow: 0 0 0 2px var(--hl-word); }
+  .body span { cursor: pointer; }
+  .body span:hover { text-decoration: underline; text-decoration-color: var(--faint); }
+
+  .notes { grid-column: 2; display: flex; flex-direction: column; gap: 6px; }
+  .notes:empty { display: none; }
+  .note { font: 14px/1.5 system-ui, sans-serif; background: var(--note); border-left: 3px solid var(--note-edge);
+    padding: 6px 10px; border-radius: 0 6px 6px 0; color: var(--ink); white-space: pre-wrap; }
+  .note .nt { font: 11px ui-monospace, monospace; color: var(--note-edge); cursor: pointer; margin-right: 6px; }
+  .composer { font: 14px/1.5 system-ui, sans-serif; background: var(--note); border-left: 3px solid var(--accent);
+    padding: 8px 10px; border-radius: 0 6px 6px 0; }
+  .composer textarea { width: 100%; min-height: 54px; resize: vertical; font: inherit; color: var(--ink);
+    background: transparent; border: 0; outline: 0; }
+  .composer .hint { font-size: 12px; color: var(--muted); }
+
+  .back { position: fixed; right: 28px; bottom: 28px; font: 600 14px system-ui, sans-serif; padding: 10px 16px;
+    border-radius: 999px; border: 0; background: var(--accent); color: #fff; cursor: pointer;
+    box-shadow: 0 6px 20px rgba(0,0,0,.18); display: none; }
+  .back.show { display: block; }
+  .toast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); font: 13px system-ui, sans-serif;
+    background: var(--ink); color: var(--bg); padding: 8px 14px; border-radius: 8px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+  .toast.show { opacity: 1; }
+
+  @media (max-width: 860px) {
+    .app { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+    .left { padding: 12px 16px; border-right: 0; border-bottom: 1px solid var(--line); overflow: visible; }
+    .help, .meta { display: none; }
+    h1 { font-size: 15px; }
+    .tx { padding: 30vh 16px 60vh; }
+    .p { grid-template-columns: 48px 1fr; }
+    body { font-size: 16px; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="left">
+    <div class="video"><video id="v" controls preload="auto"></video><div class="speed" id="speed">1.00</div></div>
+    <h1 id="title"></h1>
+    <div class="meta" id="meta"></div>
+    <div class="bar">
+      <button id="follow" class="on" title="Auto-scroll with the video (F)">Follow: on</button>
+      <button id="addnote" title="Add a note at the current moment (N)">💬 Add note</button>
+      <button id="theme" title="Light / dark">Theme</button>
+    </div>
+    <div class="help">
+      <b>Notes</b> · <kbd>N</kbd> new note (pauses) · <kbd>Enter</kbd> save · <kbd>Shift</kbd>+<kbd>Enter</kbd> new line · <kbd>Esc</kbd> cancel<br>
+      <b>Speed</b> · <kbd>S</kbd> slower · <kbd>D</kbd> faster · <kbd>R</kbd> reset · <kbd>G</kbd> favorite · <kbd>V</kbd> show/hide badge<br>
+      <b>Move</b> · <kbd>Z</kbd> back 10s · <kbd>X</kbd> forward 10s · <kbd>Space</kbd> play/pause · <kbd>F</kbd> follow<br>
+      Click any word or time to jump there. Notes are saved in the transcript .md, under their paragraph.
+    </div>
+  </div>
+  <div class="right" id="scroller"><div class="tx" id="tx"></div></div>
+</div>
+<button class="back" id="back">↓ Back to now</button>
+<div class="toast" id="toast"></div>
+
+<script>
+const DATA = /*DATA*/;
+const MEDIA = /*MEDIA*/;
+
+const $ = id => document.getElementById(id);
+const store = { get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+                set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} } };
+const fmt = s => { s = Math.floor(s); const h = Math.floor(s/3600), m = Math.floor(s%3600/60), x = s%60;
+  return (h ? h + ':' + String(m).padStart(2,'0') : m) + ':' + String(x).padStart(2,'0'); };
+function toast(msg) { const t = $('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('show'), 1600); }
+
+// ---------- render transcript ----------
+$('title').textContent = DATA.title;
+document.title = DATA.title.slice(0, 40) || 'Follow-Along Player';
+const tx = $('tx'), paraEls = [], wordEls = [], noteBoxes = [], starts = [];
+const frag = document.createDocumentFragment();
+DATA.paras.forEach((p, i) => {
+  const row = document.createElement('div'); row.className = 'p' + (p.turn ? ' turn' : '');
+  const t = document.createElement('div'); t.className = 't'; t.textContent = fmt(DATA.t[i][0]); t.dataset.s = DATA.t[i][0];
+  const body = document.createElement('div'); body.className = 'body';
+  const ws = [];
+  p.w.forEach((w, j) => { const s = document.createElement('span'); s.textContent = w; s.dataset.p = i; s.dataset.w = j;
+    body.appendChild(s); body.appendChild(document.createTextNode(' ')); ws.push(s); });
+  const notes = document.createElement('div'); notes.className = 'notes';
+  row.append(t, body, notes); frag.appendChild(row);
+  paraEls.push(row); wordEls.push(ws); noteBoxes.push(notes); starts.push(DATA.t[i][0]);
+});
+tx.appendChild(frag);
+
+// ---------- media + speed (Video Speed Controller keys) ----------
+const v = $('v'); v.src = MEDIA;
+let lastSpeed = store.get('fap.lastSpeed', 2.5), favSpeed = store.get('fap.favSpeed', 2.5);
+function setSpeed(r) {
+  r = Math.round(Math.min(16, Math.max(0.1, r)) * 100) / 100;
+  v.playbackRate = r; $('speed').textContent = r.toFixed(2);
+  if (r !== 1) { lastSpeed = r; store.set('fap.lastSpeed', r); }
+}
+v.addEventListener('loadedmetadata', () => setSpeed(store.get('fap.speed', 1)));
+v.addEventListener('ratechange', () => { $('speed').textContent = v.playbackRate.toFixed(2); store.set('fap.speed', v.playbackRate); });
+if (store.get('fap.badgeHidden', false)) $('speed').classList.add('hide');
+
+// ---------- find position + highlight ----------
+const lastLE = (arr, x) => { let lo = 0, hi = arr.length - 1, r = 0;
+  while (lo <= hi) { const m = (lo + hi) >> 1; if (arr[m] <= x) { r = m; lo = m + 1; } else hi = m - 1; } return r; };
+let curP = -1, curW = -1;
+function setPos(time) {
+  const p = lastLE(starts, time), w = lastLE(DATA.t[p], time);
+  if (p !== curP) {
+    if (curP >= 0) { paraEls[curP].classList.remove('active'); wordEls[curP].forEach(e => e.className = ''); }
+    for (let i = 0; i < paraEls.length; i++) paraEls[i].classList.toggle('past', i < p);
+    paraEls[p].classList.add('active'); curP = p; curW = -1;
+  }
+  if (w !== curW) {
+    wordEls[p].forEach((e, j) => e.className = j < w ? 'said' : j === w ? 'now' : '');
+    curW = w; if (follow && !composing) keepInView(wordEls[p][w]);
+  }
+}
+setInterval(() => setPos(v.currentTime + 0.1), 50);   // timer, not rAF, so it keeps going in a background tab
+
+// ---------- scrolling / follow ----------
+const scroller = $('scroller');
+let follow = true;
+function keepInView(el, force) {
+  const r = el.getBoundingClientRect(), s = scroller.getBoundingClientRect(), y = r.top - s.top;
+  if (force || y < s.height * 0.2 || y > s.height * 0.6)
+    scroller.scrollTo({ top: scroller.scrollTop + y - s.height * 0.35, behavior: force ? 'auto' : 'smooth' });
+}
+function setFollow(on) {
+  follow = on; $('follow').classList.toggle('on', on); $('follow').textContent = 'Follow: ' + (on ? 'on' : 'off');
+  $('back').classList.toggle('show', !on);
+  if (on && curP >= 0) keepInView(wordEls[curP][Math.max(curW, 0)], true);
+}
+['wheel', 'touchmove'].forEach(ev => scroller.addEventListener(ev, () => { if (follow) setFollow(false); }, { passive: true }));
+$('back').onclick = () => setFollow(true);
+$('follow').onclick = () => setFollow(!follow);
+$('theme').onclick = () => { const r = document.documentElement;
+  r.dataset.theme = getComputedStyle(r).getPropertyValue('--bg').trim() === '#151514' ? 'light' : 'dark'; };
+
+function seek(s) { v.currentTime = Math.max(0, s - 0.3); v.play(); setFollow(true); }
+tx.addEventListener('click', e => {
+  const el = e.target;
+  if (el.dataset.w !== undefined) seek(DATA.t[+el.dataset.p][+el.dataset.w]);
+  else if (el.dataset.s !== undefined) seek(+el.dataset.s);
+});
+
+// ---------- notes (saved in the transcript .md by server.py) ----------
+let notesSig = '', composing = null;
+function renderNotes(list) {
+  const sig = JSON.stringify(list); if (sig === notesSig) return; notesSig = sig;
+  noteBoxes.forEach(b => b.querySelectorAll('.note').forEach(n => n.remove()));
+  list.forEach(n => {
+    const box = noteBoxes[n.para]; if (!box) return;
+    const el = document.createElement('div'); el.className = 'note';
+    const t = n.time ?? starts[n.para];
+    const ts = document.createElement('span'); ts.className = 'nt'; ts.textContent = '💬 ' + fmt(t); ts.dataset.s = t;
+    el.append(ts, document.createTextNode(n.text));
+    box.insertBefore(el, box.querySelector('.composer'));
+  });
+}
+async function loadNotes() {
+  try { const r = await fetch('/api/notes', { cache: 'no-store' }); if (r.ok) renderNotes(await r.json()); } catch {}
+}
+loadNotes(); setInterval(loadNotes, 2000);   // picks up notes typed in Obsidian too
+
+function openComposer() {
+  if (composing) { composing.querySelector('textarea').focus(); return; }
+  const para = Math.max(curP, 0), time = v.currentTime, wasPlaying = !v.paused;
+  v.pause();
+  const c = document.createElement('div'); c.className = 'composer';
+  c.innerHTML = `<div class="hint">💬 note at ${fmt(time)} — Enter to save, Esc to cancel</div><textarea></textarea>`;
+  noteBoxes[para].appendChild(c); composing = c;
+  keepInView(c, true);
+  const ta = c.querySelector('textarea'); ta.focus();
+  const close = () => { c.remove(); composing = null; if (wasPlaying) v.play(); };
+  ta.addEventListener('keydown', async e => {
+    e.stopPropagation();
+    if (e.key === 'Escape') { e.preventDefault(); close(); }
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault(); const text = ta.value.trim(); if (!text) return close();
+      try {
+        const r = await fetch('/api/notes', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ para, time, text }) });
+        if (!r.ok) throw new Error((await r.json()).error);
+        close(); renderNotes(await r.json()); toast('Note saved to .md');
+      } catch (err) { toast('Could not save: ' + err.message); }
+    }
+  });
+}
+$('addnote').onclick = openComposer;
+tx.addEventListener('click', e => { if (e.target.classList.contains('nt')) seek(+e.target.dataset.s); });
+
+// ---------- keys ----------
+document.addEventListener('keydown', e => {
+  if (e.metaKey || e.ctrlKey || e.altKey || /TEXTAREA|INPUT/.test(e.target.tagName)) return;
+  const k = e.key.toLowerCase(), r = v.playbackRate;
+  const act = {
+    ' ': () => v.paused ? v.play() : v.pause(),
+    s: () => setSpeed(r - 0.1), d: () => setSpeed(r + 0.1),
+    r: () => setSpeed(r === 1 ? lastSpeed : 1),
+    g: () => setSpeed(r === favSpeed ? 1 : favSpeed),
+    z: () => v.currentTime -= 10, x: () => v.currentTime += 10,
+    arrowleft: () => v.currentTime -= 5, arrowright: () => v.currentTime += 5,
+    v: () => { const b = $('speed'); b.classList.toggle('hide'); store.set('fap.badgeHidden', b.classList.contains('hide')); },
+    f: () => setFollow(!follow), n: openComposer,
+  }[k];
+  if (act) { e.preventDefault(); act(); }
+});
+</script>
+</body>
+</html>

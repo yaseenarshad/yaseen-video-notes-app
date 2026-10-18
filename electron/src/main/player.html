@@ -1,0 +1,916 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<title>Follow Along</title>
+<style>
+  /* Contrast (WCAG) on the page background — light / dark: body text 16.2 / 14.2, past paragraphs
+     12+ / 11+, timestamps and meta 5.7 / 6.8, current phrase text on its highlight 13.5 / 12.0,
+     note text 15.0 / 12.0, note time 5.1 / 6.7. Nothing below 4.5. */
+  :root {
+    --bg: #fbfaf7; --panel: #ffffff; --ink: #1d1d1b; --muted: #66635c; --faint: #c9c5bb; --past: #36342f;
+    --line: #e6e2d9; --accent: #c2410c; --hl: #f6efdc; --hl-bar: #e0a526; --hl-word: #ffe58a; --hl-ink: #1d1d1b;
+    --note: #edf2fc; --note-edge: #3d63b8; --cover: #d6e4ff; --hit: #ffe08a; --hit-cur: #ffb35c;
+    --split: 46%; --fs: 17px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #1c1c1f; --panel: #242428; --ink: #ecebe6; --muted: #a7a39b; --faint: #55524c; --past: #d0cdc6;
+      --line: #313036; --accent: #ff8a4c; --hl: #2a2721; --hl-bar: #ffc533; --hl-word: #ffd45e; --hl-ink: #1c1c1f;
+      --note: #232a3a; --note-edge: #8fb0ff; --cover: #2f4370; --hit: #6b5a1c; --hit-cur: #ffb35c;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #1c1c1f; --panel: #242428; --ink: #ecebe6; --muted: #a7a39b; --faint: #55524c; --past: #d0cdc6;
+    --line: #313036; --accent: #ff8a4c; --hl: #2a2721; --hl-bar: #ffc533; --hl-word: #ffd45e; --hl-ink: #1c1c1f;
+    --note: #232a3a; --note-edge: #8fb0ff; --cover: #2f4370; --hit: #6b5a1c; --hit-cur: #ffb35c;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--ink); }
+  body { font: 17px/1.65 Georgia, "Iowan Old Style", serif; }
+  button { font: inherit; }
+
+  .app { display: grid; grid-template-columns: var(--split) 7px 1fr; height: 100vh; }
+  .left { padding: 20px 18px 16px 22px; display: flex; flex-direction: column; gap: 10px; overflow: hidden; min-width: 0; min-height: 0; height: 100vh; }
+  .divider { cursor: col-resize; position: relative; background: transparent; }
+  .divider::after { content: ""; position: absolute; top: 0; bottom: 0; left: 3px; width: 1px; background: var(--line); }
+  .divider:hover::after, body.dragging .divider::after { left: 2px; width: 3px; background: var(--accent); opacity: .6; }
+  body.dragging, body.dragging * { cursor: col-resize !important; user-select: none !important; }
+  body.dragging iframe { pointer-events: none; }
+  .video { position: relative; aspect-ratio: 16/9; width: 100%; max-width: calc(62vh * 16 / 9); margin: 0 auto; background: #000;
+    border-radius: 10px; overflow: hidden; flex: none; }
+  .video iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+  .speed { position: absolute; top: 10px; left: 10px; font: 600 13px ui-monospace, monospace; color: #fff;
+    background: rgba(0,0,0,.55); padding: 3px 8px; border-radius: 6px; pointer-events: none; }
+  .speed.hide { display: none; }
+  .vmsg { position: absolute; inset: auto 10px 10px 10px; font: 13px system-ui, sans-serif; color: #fff;
+    background: rgba(170,30,0,.85); padding: 6px 10px; border-radius: 6px; display: none; }
+  .vmsg.show { display: block; }
+  .info { flex: none; }
+  h1 { font: 600 18px/1.3 system-ui, sans-serif; margin: 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+  .meta { font: 13.5px/1.5 system-ui, sans-serif; color: var(--muted); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .meta .live { font-variant-numeric: tabular-nums; }
+  .meta .warn { color: var(--accent); }
+  .bar { display: flex; gap: 6px; flex-wrap: wrap; font: 14px system-ui, sans-serif; flex: none; }
+  .bar button { padding: 5px 11px; border-radius: 999px; border: 1px solid var(--line);
+    background: var(--panel); color: var(--ink); cursor: pointer; white-space: nowrap; }
+  .bar .keysbtn { margin-left: auto; width: 32px; padding: 5px 0; color: var(--muted); }
+  .bar button.on { border-color: var(--accent); color: var(--accent); }
+
+  .panel { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; font: 14.5px/1.45 system-ui, sans-serif;
+    border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--panel); }
+  .ptabs { display: flex; gap: 2px; padding: 4px; border-bottom: 1px solid var(--line); flex: none; }
+  .ptabs button { border: 0; background: transparent; color: var(--muted); padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 13.5px; }
+  .ptabs button.on { background: var(--hl); color: var(--ink); font-weight: 600; }
+  .ptabs button.hide { display: none; }
+  .plist { overflow-y: auto; flex: 1 1 0; min-height: 0; padding: 4px; position: relative; }
+  /* thin scrollbars that match the theme */
+  .plist, .right { scrollbar-width: thin; scrollbar-color: var(--faint) transparent; }
+  .plist::-webkit-scrollbar, .right::-webkit-scrollbar { width: 8px; }
+  .plist::-webkit-scrollbar-track, .right::-webkit-scrollbar-track { background: transparent; }
+  .plist::-webkit-scrollbar-thumb, .right::-webkit-scrollbar-thumb { background: var(--faint); border-radius: 8px; border: 2px solid var(--panel); }
+  .right::-webkit-scrollbar-thumb { border-color: var(--bg); }
+  .item { display: grid; grid-template-columns: minmax(54px, max-content) minmax(0, 1fr); gap: 8px; padding: 5px 8px; border-radius: 6px; cursor: pointer; color: var(--ink); }
+  .item:hover { background: var(--hl); }
+  .item.cur { background: var(--hl); box-shadow: inset 3px 0 0 var(--accent); font-weight: 600; }
+  .item .it { font: 12.5px/1.8 ui-monospace, monospace; color: var(--muted); text-align: right; white-space: nowrap; }
+  .item .iq { display: block; color: var(--muted); font-style: italic; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .item > span:last-child { min-width: 0; }
+  .item .ix { white-space: pre-wrap; }
+  .empty { color: var(--muted); padding: 10px; }
+  kbd { font: 11.5px ui-monospace, monospace; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; padding: 1px 6px;
+    color: var(--ink); background: var(--bg); white-space: nowrap; }
+  .sheet { position: fixed; inset: 0; z-index: 10; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,.35); }
+  .sheet.show { display: flex; }
+  .sheet .card { background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 20px 60px rgba(0,0,0,.35);
+    padding: 22px 26px; width: min(760px, calc(100vw - 40px)); max-height: calc(100vh - 40px); overflow: auto; font: 13px/1.5 system-ui, sans-serif; }
+  .sheet h2 { font: 600 16px system-ui, sans-serif; margin: 0 0 14px; display: flex; justify-content: space-between; align-items: baseline; }
+  .sheet h2 span { font-weight: 400; font-size: 12px; color: var(--muted); }
+  .sheet .groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px 30px; }
+  .sheet h3 { font: 600 11px system-ui, sans-serif; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 6px; }
+  .sheet .row { display: flex; justify-content: space-between; gap: 16px; padding: 3px 0; border-bottom: 1px solid var(--line); }
+  .sheet .row:last-child { border-bottom: 0; }
+  .sheet .row span:last-child { display: flex; gap: 3px; flex: none; }
+  .sheet .card.confirm { width: min(420px, calc(100vw - 40px)); }
+  .confirm .cline { margin: 0 0 6px; font-style: italic; color: var(--ink); overflow-wrap: anywhere; }
+  .confirm .csub { margin: 0 0 18px; color: var(--muted); }
+  .confirm .cbtns { display: flex; justify-content: flex-end; gap: 8px; }
+  .confirm button { font: 13px system-ui, sans-serif; padding: 6px 14px; border-radius: 7px; border: 1px solid var(--line);
+    background: var(--panel); color: var(--ink); cursor: pointer; }
+  .confirm button.danger { background: #d92d20; border-color: #d92d20; color: #fff; font-weight: 600; }
+  .confirm button:focus-visible { outline: 2px solid var(--note-edge); outline-offset: 2px; }
+  .menu { position: fixed; z-index: 11; display: none; min-width: 150px; padding: 4px; background: var(--panel);
+    border: 1px solid var(--line); border-radius: 9px; box-shadow: 0 10px 30px rgba(0,0,0,.25); font: 13px system-ui, sans-serif; }
+  .menu.show { display: block; }
+  .menu button { display: block; width: 100%; text-align: left; border: 0; background: transparent; color: var(--ink);
+    padding: 6px 10px; border-radius: 6px; cursor: pointer; }
+  .menu button:hover { background: var(--hl); }
+  .menu button.danger { color: #e5484d; }
+
+  .rwrap { position: relative; min-width: 0; min-height: 0; }
+  .right { position: absolute; inset: 0; overflow-y: auto; overflow-x: hidden; }
+  .tools { position: absolute; top: 10px; right: 22px; z-index: 4; display: flex; gap: 4px; font: 13px system-ui, sans-serif; }
+  .tools button { border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 7px; padding: 3px 9px; cursor: pointer; }
+  .tools button:hover { border-color: var(--muted); }
+  .find { position: absolute; top: 10px; left: 16px; z-index: 4; display: none; align-items: center; gap: 6px;
+    font: 13px system-ui, sans-serif; background: var(--panel); border: 1px solid var(--line); border-radius: 9px;
+    padding: 4px 6px 4px 10px; box-shadow: 0 6px 20px rgba(0,0,0,.15); }
+  .find.show { display: flex; }
+  .find input { width: 220px; border: 0; outline: 0; background: transparent; color: var(--ink); font: inherit; }
+  .find .fc { color: var(--muted); min-width: 64px; text-align: right; font-variant-numeric: tabular-nums; }
+  .find button { border: 0; background: transparent; color: var(--muted); cursor: pointer; padding: 2px 6px; border-radius: 5px; }
+  .find button:hover { color: var(--ink); background: var(--hl); }
+
+  /* ~70 characters a line */
+  .tx { max-width: calc(70ch + 110px); margin: 0 auto; padding: 40vh 32px 60vh; font-size: var(--fs); line-height: 1.7; }
+  .chap { font: 600 calc(var(--fs) * 0.9)/1.3 system-ui, sans-serif; margin: 28px 0 6px 58px; padding-top: 14px;
+    border-top: 1px solid var(--line); cursor: pointer; color: var(--ink); }
+  .chap .ct { font: 12px ui-monospace, monospace; color: var(--accent); margin-right: 8px; }
+  .chap:hover .ct { text-decoration: underline; }
+  .p { display: grid; grid-template-columns: 58px minmax(0, 1fr); gap: 10px; padding: 8px 12px; margin: 0 -12px;
+    border-radius: 8px; transition: background .25s, opacity .25s; }
+  .p .t { font: 13px/2.2 ui-monospace, monospace; color: var(--muted); cursor: pointer; text-align: right; user-select: none; }
+  .p .t:hover { color: var(--accent); }
+  .p.turn { margin-top: 14px; }
+  .p.turn .body::before { content: "— "; color: var(--faint); }
+  .p .body { color: var(--ink); }
+  .p.past .body { color: var(--past); }
+  /* the active paragraph: a soft tint and a thin accent bar; its words stay fully readable */
+  .p.active { background: var(--hl); box-shadow: inset 3px 0 0 var(--hl-bar); }
+  /* the current phrase is the main highlight; the current word gets a quieter mark inside it */
+  .p.active .body span.phrase { color: var(--hl-ink); background: var(--hl-word); box-shadow: .25em 0 0 var(--hl-word), -.25em 0 0 var(--hl-word); }
+  .p.active .body span.phrase.pend { box-shadow: -.25em 0 0 var(--hl-word); border-radius: 0 3px 3px 0; }
+  .p.active .body span.phrase.pstart { box-shadow: .25em 0 0 var(--hl-word); border-radius: 3px 0 0 3px; }
+  .p.active .body span.phrase.pstart.pend { box-shadow: none; border-radius: 3px; }
+  .p.active .body span.now { text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px;
+    text-decoration-color: var(--hl-ink); }
+  .body span { cursor: pointer; }
+  .body span:hover { text-decoration: underline; text-decoration-color: var(--faint); }
+  .body span.cover, .body span.pending { background: var(--cover); text-decoration: underline; text-decoration-color: var(--note-edge);
+    text-underline-offset: 3px; border-radius: 2px; }
+  .body span.hit { background: var(--hit); border-radius: 2px; color: var(--ink); }
+  .body span.hitcur { background: var(--hit-cur); color: #1d1d1b; }
+
+  /* focus mode = the normal view, with everything but the current paragraph faded and the current one larger */
+  body.focus .p:not(.active), body.focus .chap { opacity: .3; }
+  body.focus .p:not(.active):hover { opacity: .6; }
+  body.focus .p.active { font-size: 1.15em; }
+  body.focus.finding .p:not(.active), body.focus.finding .chap { opacity: 1; }
+
+  .notes { grid-column: 2; display: flex; flex-direction: column; gap: 6px; }
+  .notes:empty { display: none; }
+  .note { font: 14px/1.5 system-ui, sans-serif; background: var(--note); border-left: 3px solid var(--note-edge);
+    padding: 6px 10px; border-radius: 0 6px 6px 0; color: var(--ink); white-space: pre-wrap; user-select: text; }
+  .note.pinned, .note.flash { box-shadow: 0 0 0 1px var(--note-edge); }
+  .note .nt { font: 11px ui-monospace, monospace; color: var(--note-edge); cursor: pointer; margin-right: 6px; }
+  .note .nq { display: block; margin-top: 3px; font-style: italic; color: var(--muted); opacity: .8;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .note.pinned .nq { white-space: normal; }
+  .composer { font: 14px/1.5 system-ui, sans-serif; background: var(--note); border-left: 3px solid var(--accent);
+    padding: 8px 10px; border-radius: 0 6px 6px 0; }
+  .composer textarea { width: 100%; min-height: 54px; resize: vertical; font: inherit; color: var(--ink);
+    background: transparent; border: 0; outline: 0; }
+  .composer .hint { font-size: 12px; color: var(--muted); }
+
+  .selbtn { position: fixed; z-index: 5; font: 600 13px system-ui, sans-serif; padding: 5px 10px; border-radius: 999px;
+    border: 0; background: var(--note-edge); color: #fff; cursor: pointer; box-shadow: 0 4px 14px rgba(0,0,0,.2); display: none; }
+  .selbtn.show { display: block; }
+  .back { position: fixed; right: 28px; bottom: 28px; font: 600 14px system-ui, sans-serif; padding: 10px 16px;
+    border-radius: 999px; border: 0; background: var(--accent); color: #fff; cursor: pointer;
+    box-shadow: 0 6px 20px rgba(0,0,0,.18); display: none; z-index: 5; }
+  .back.show { display: block; }
+  .toast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); font: 13px system-ui, sans-serif;
+    background: var(--ink); color: var(--bg); padding: 8px 14px; border-radius: 8px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 6; }
+  .toast.show { opacity: 1; }
+  .atoast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 6; display: none; align-items: center; gap: 12px;
+    font: 13px system-ui, sans-serif; background: var(--ink); color: var(--bg); padding: 7px 8px 7px 14px; border-radius: 9px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.25); }
+  .atoast.show { display: flex; }
+  .atoast button { font: 600 12.5px system-ui, sans-serif; border: 0; border-radius: 6px; padding: 4px 10px; cursor: pointer;
+    background: var(--accent); color: #fff; }
+
+  @media (max-width: 860px) {
+    .app { grid-template-columns: 1fr; grid-template-rows: auto 1fr; height: 100vh; }
+    .divider, .panel { display: none; }
+    .left { padding: 12px 16px; border-bottom: 1px solid var(--line); overflow: visible; gap: 8px; height: auto; }
+    .video { max-width: calc(42vh * 16 / 9); }
+    h1 { font-size: 14px; -webkit-line-clamp: 1; }
+    .tx { padding: 30vh 16px 60vh; }
+    .p { grid-template-columns: 48px minmax(0, 1fr); }
+    .chap { margin-left: 48px; }
+  }
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <div class="left">
+    <div class="video"><iframe id="yt" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen
+      referrerpolicy="strict-origin-when-cross-origin"></iframe><div class="speed" id="speed">1.00</div><div class="vmsg" id="vmsg"></div></div>
+    <div class="info"><h1 id="title"></h1><div class="meta"><span id="meta"></span> · <span class="live" id="live">connecting…</span></div></div>
+    <div class="bar">
+      <button id="follow" class="on" title="Auto-scroll with the video (F)">Follow: on</button>
+      <button id="focusbtn" title="Focus mode: fade everything but the current paragraph (Shift+F)">Focus</button>
+      <button id="addnote" title="Add a note at the current moment, or on the highlighted words (N)">💬 Add note</button>
+      <button id="theme" title="Light / dark">Theme</button>
+      <button id="keysbtn" class="keysbtn" title="Keyboard shortcuts (?)">?</button>
+    </div>
+    <div class="panel" id="panel">
+      <div class="ptabs"><button id="tabChapters" class="on">Chapters</button><button id="tabNotes">Notes</button></div>
+      <div class="plist" id="plist"></div>
+    </div>
+  </div>
+  <div class="divider" id="divider" title="Drag to resize"></div>
+  <div class="rwrap">
+    <div class="right" id="scroller"><div class="tx" id="tx"></div></div>
+    <div class="tools"><button id="smaller" title="Smaller transcript text">A−</button><button id="bigger" title="Bigger transcript text">A+</button></div>
+    <div class="find" id="find"><input id="findq" placeholder="Find in transcript" spellcheck="false" autocomplete="off">
+      <span class="fc" id="fcount"></span><button id="fprev" title="Previous (⇧Enter)">↑</button><button id="fnext" title="Next (Enter)">↓</button><button id="fclose" title="Close (Esc)">✕</button></div>
+  </div>
+</div>
+<button class="selbtn" id="selbtn" title="Note on the highlighted words (N)">💬 Note</button>
+<button class="back" id="back">↓ Back to now</button>
+<div class="toast" id="toast"></div>
+<div class="atoast" id="atoast"><span></span><button></button></div>
+<div class="menu" id="menu"></div>
+<div class="sheet" id="confirm" tabindex="-1"><div class="card confirm">
+  <h2>Delete this note?</h2>
+  <p class="cline" id="confirmLine"></p>
+  <p class="csub">This removes it from the .md file.</p>
+  <div class="cbtns"><button id="confirmCancel">Cancel</button><button id="confirmDelete" class="danger">Delete</button></div>
+</div></div>
+<div class="sheet" id="sheet"><div class="card">
+  <h2>Keyboard shortcuts <span>Esc to close</span></h2>
+  <div class="groups">
+    <div><h3>Notes</h3>
+      <div class="row"><span>New note at this moment (pauses)</span><span><kbd>N</kbd></span></div>
+      <div class="row"><span>Note on highlighted words</span><span>select + <kbd>N</kbd></span></div>
+      <div class="row"><span>Save note</span><span><kbd>Enter</kbd></span></div>
+      <div class="row"><span>New line in a note</span><span><kbd>⇧</kbd><kbd>Enter</kbd></span></div>
+      <div class="row"><span>Cancel note</span><span><kbd>Esc</kbd></span></div></div>
+    <div><h3>Speed</h3>
+      <div class="row"><span>Slower / faster (0.1)</span><span><kbd>S</kbd><kbd>D</kbd></span></div>
+      <div class="row"><span>Reset (1× ↔ last speed)</span><span><kbd>R</kbd></span></div>
+      <div class="row"><span>Favorite speed</span><span><kbd>G</kbd></span></div>
+      <div class="row"><span>Show / hide speed badge</span><span><kbd>V</kbd></span></div></div>
+    <div><h3>Move</h3>
+      <div class="row"><span>Play / pause</span><span><kbd>Space</kbd></span></div>
+      <div class="row"><span>Back / forward 10 s</span><span><kbd>Z</kbd><kbd>X</kbd></span></div>
+      <div class="row"><span>Back / forward 5 s</span><span><kbd>←</kbd><kbd>→</kbd></span></div>
+      <div class="row"><span>Jump to a word, time or chapter</span><span>click</span></div></div>
+    <div><h3>View</h3>
+      <div class="row"><span>Follow the video</span><span><kbd>F</kbd></span></div>
+      <div class="row"><span>Focus mode</span><span><kbd>⇧F</kbd></span></div>
+      <div class="row"><span>Find in transcript</span><span><kbd>⌘F</kbd></span></div>
+      <div class="row"><span>Zoom (whole window)</span><span><kbd>⌘+</kbd><kbd>⌘−</kbd><kbd>⌘0</kbd></span></div>
+      <div class="row"><span>Transcript text size</span><span>A− / A+ buttons</span></div>
+      <div class="row"><span>New tab / close tab</span><span><kbd>⌘T</kbd><kbd>⌘W</kbd></span></div>
+      <div class="row"><span>Go to tab</span><span><kbd>⌘1</kbd>…<kbd>⌘9</kbd></span></div>
+      <div class="row"><span>This list</span><span><kbd>?</kbd></span></div></div>
+  </div></div></div>
+
+<script>
+(async function () {
+const $ = id => document.getElementById(id);
+// Messages to the app (main process, via the player preload; the Swift app used window.webkit.messageHandlers).
+const native = m => { try { window.faNative.post(m); } catch (e) {} };
+window.addEventListener('error', e => native({ type: 'error', message: String(e.message) }));
+const fmt = s => { s = Math.max(0, Math.floor(s)); const h = Math.floor(s/3600), m = Math.floor(s%3600/60), x = s%60;
+  return (h ? h + ':' + String(m).padStart(2,'0') : m) + ':' + String(x).padStart(2,'0'); };
+function toast(msg) { const t = $('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('show'), 1800); }
+const getJSON = async url => { const r = await fetch(url, { cache: 'no-store' }); if (!r.ok) throw new Error(url + ' ' + r.status); return r.json(); };
+const lastLE = (arr, x) => { let lo = 0, hi = arr.length - 1, r = 0;
+  while (lo <= hi) { const m = (lo + hi) >> 1; if (arr[m] <= x) { r = m; lo = m + 1; } else hi = m - 1; } return r; };
+
+const DATA = await getJSON('/data.json');
+const PREFS = await getJSON('/api/prefs').catch(() => ({}));
+function savePrefs(p) { Object.assign(PREFS, p); fetch('/api/prefs', { method: 'POST', body: JSON.stringify(PREFS) }).catch(() => {}); }
+const CHAPTERS = DATA.chapters || [];
+
+// ---------- render transcript ----------
+$('title').textContent = DATA.title;
+document.title = DATA.title;
+$('meta').textContent = [DATA.channel, DATA.duration ? fmt(DATA.duration) : ''].filter(Boolean).join(' · ');
+const tx = $('tx'), paraEls = [], wordEls = [], noteBoxes = [], starts = [], chapEls = [];
+const flat = [], flatT = [];   // every word as [p, j], and its time
+const phraseOf = [], phrases = [];   // phraseOf[p][j] = index into phrases[p] = [first, last]
+const chapByPara = {};
+CHAPTERS.forEach((c, k) => (chapByPara[c.para] = chapByPara[c.para] || []).push(k));
+function phraseSplit(words) {
+  // ~4–6 words, ending at punctuation; a sentence end always ends a phrase
+  const of = [], list = []; let first = 0;
+  words.forEach((w, j) => {
+    of.push(list.length);
+    const n = j - first + 1;
+    if (/[.?!…]["')\]]*$/.test(w) || (/[,;:—–)\]"]$/.test(w) && n >= 3) || n >= 6 || j === words.length - 1) {
+      list.push([first, j]); first = j + 1;
+    }
+  });
+  return [of, list];
+}
+const frag = document.createDocumentFragment();
+DATA.paras.forEach((p, i) => {
+  (chapByPara[i] || []).forEach(k => {
+    const c = CHAPTERS[k], h = document.createElement('div'); h.className = 'chap'; h.dataset.s = c.start;
+    const ct = document.createElement('span'); ct.className = 'ct'; ct.textContent = fmt(c.start); ct.dataset.s = c.start;
+    h.append(ct, document.createTextNode(c.title)); frag.appendChild(h); chapEls[k] = h;
+  });
+  const row = document.createElement('div'); row.className = 'p' + (p.turn ? ' turn' : '');
+  const t = document.createElement('div'); t.className = 't'; t.textContent = fmt(DATA.t[i][0]); t.dataset.s = DATA.t[i][0];
+  const body = document.createElement('div'); body.className = 'body';
+  const ws = [];
+  p.w.forEach((w, j) => { const s = document.createElement('span'); s.textContent = w; s.dataset.p = i; s.dataset.w = j;
+    body.appendChild(s); body.appendChild(document.createTextNode(' ')); ws.push(s); flat.push([i, j]); flatT.push(DATA.t[i][j]); });
+  const notes = document.createElement('div'); notes.className = 'notes';
+  row.append(t, body, notes); frag.appendChild(row);
+  paraEls.push(row); wordEls.push(ws); noteBoxes.push(notes); starts.push(DATA.t[i][0]);
+  const [of, list] = phraseSplit(p.w); phraseOf.push(of); phrases.push(list);
+});
+tx.appendChild(frag);
+
+// ---------- the YouTube player (driven through the injected script) ----------
+const P = { t: 0, at: performance.now(), rate: 1, paused: true, dur: 0, ok: false, q: '', w: 0, h: 0, err: '', ad: false, seen: 0 };
+const frame = $('yt');
+const origin = location.origin;
+frame.src = 'https://www.youtube.com/embed/' + encodeURIComponent(DATA.id) +
+  '?playsinline=1&rel=0&modestbranding=1&enablejsapi=1&origin=' + encodeURIComponent(origin) +
+  '&widget_referrer=' + encodeURIComponent(origin);
+function cmd(o) { try { frame.contentWindow.postMessage(Object.assign({ fa: 'cmd' }, o), '*'); } catch (e) {} }
+function now() { return P.paused ? P.t : P.t + (performance.now() - P.at) / 1000 * P.rate; }
+
+let speed = PREFS.speed || 1, lastSpeed = PREFS.lastSpeed || 2.5, favSpeed = PREFS.favSpeed || 2.5;
+let lastRateFix = 0;
+function showSpeed() { $('speed').textContent = speed.toFixed(2); }
+// A run of S/D taps updates the badge at once and sets the video's rate once, after the last tap.
+// (Chromium changes the rate without an audio gap; WebKit, in the old Swift app, skipped audio on
+// every change, which is why this batching exists. It is kept: one change per run of taps.)
+let rateTimer = null;
+function setSpeed(r) {
+  r = Math.round(Math.min(16, Math.max(0.1, r)) * 100) / 100;
+  speed = r; showSpeed();
+  clearTimeout(rateTimer);
+  rateTimer = setTimeout(() => { rateTimer = null; cmd({ rate: speed }); native({ type: 'rate-sent', speed }); }, 180);
+  if (r !== 1) lastSpeed = r;
+  savePrefs({ speed: r, lastSpeed });
+  native({ type: 'speed', speed: r });
+}
+showSpeed();
+if (PREFS.badgeHidden) $('speed').classList.add('hide');
+
+window.addEventListener('message', e => {
+  const m = e.data;
+  if (!m || typeof m !== 'object' || e.source !== frame.contentWindow) return;
+  if (m.fa === 'status') {
+    const first = !P.ok && m.ok;
+    Object.assign(P, { t: m.t, at: performance.now(), rate: m.rate, paused: m.paused, dur: m.dur, ok: m.ok,
+      q: m.q, w: m.w, h: m.h, err: m.err, ad: m.ad, seen: performance.now() });
+    if (first) { cmd({ rate: speed }); native({ type: 'connected' }); resume(); }
+    if (m.ok && !rateTimer && Math.abs(m.rate - speed) > 0.01 && performance.now() - lastRateFix > 500) { lastRateFix = performance.now(); cmd({ rate: speed }); }
+    $('vmsg').textContent = m.err ? 'YouTube: ' + m.err : '';
+    $('vmsg').classList.toggle('show', !!m.err);
+  } else if (m.fa === 'event') {
+    native(Object.assign({ type: 'video-event' }, m));
+  } else if (m.fa === 'key') {
+    if (!composing && !findOpen() && !confirmOpen()) handleKey(m.key || '', true, m.repeat, m.shift);
+  }
+});
+setInterval(() => {
+  const stale = performance.now() - P.seen > 12000;
+  const live = $('live');
+  if (!P.ok || stale) {
+    live.textContent = performance.now() > 12000 ? 'YouTube player not reporting' : 'connecting…';
+    live.classList.toggle('warn', performance.now() > 12000);
+  } else {
+    live.classList.remove('warn');
+    live.textContent = P.rate.toFixed(2) + '×' + (P.h ? ' · ' + P.h + 'p' : '') + (P.ad ? ' · ad' : '');
+    live.title = (P.q || '') + ' ' + P.w + '×' + P.h;
+  }
+}, 250);
+setInterval(() => native({ type: 'tick', t: +now().toFixed(2), rate: P.rate, speed, paused: P.paused, q: P.q, w: P.w, h: P.h,
+  ok: P.ok, ad: P.ad, err: P.err, para: curP, word: curW, wordText: curP >= 0 && curW >= 0 ? DATA.paras[curP].w[curW] : '',
+  phrase: curP >= 0 && curPh >= 0 ? DATA.paras[curP].w.slice(phrases[curP][curPh][0], phrases[curP][curPh][1] + 1).join(' ') : '',
+  chapter: curC, follow, dur: DATA.duration || P.dur, resumed, scroll: Math.round(scroller.scrollTop), scrollH: scroller.scrollHeight, viewH: scroller.clientHeight, focus: document.body.classList.contains('focus'), fontSize, notes: noteCount }), 1000);
+
+// ---------- find position + highlight (phrase + word) ----------
+let curP = -1, curW = -1, curPh = -1, curC = -1;
+const chapStarts = CHAPTERS.map(c => c.start);
+function markPhrase(p, k, on) {
+  if (p < 0 || k < 0) return;
+  const [a, b] = phrases[p][k];
+  for (let j = a; j <= b; j++) {
+    const cl = wordEls[p][j].classList;
+    cl.toggle('phrase', on); cl.toggle('pstart', on && j === a); cl.toggle('pend', on && j === b);
+  }
+}
+function setPos(time) {
+  if (downAt !== null) return;   // while the mouse is down nothing in the text changes
+  const p = lastLE(starts, time), w = lastLE(DATA.t[p], time);
+  if (p !== curP) {
+    if (curP >= 0) { markPhrase(curP, curPh, false); paraEls[curP].classList.remove('active'); wordEls[curP].forEach(e => e.classList.remove('said', 'now')); }
+    for (let i = 0; i < paraEls.length; i++) paraEls[i].classList.toggle('past', i < p);
+    paraEls[p].classList.add('active'); curP = p; curW = -1; curPh = -1;
+  }
+  if (w !== curW) {
+    wordEls[p].forEach((e, j) => { e.classList.toggle('said', j < w); e.classList.toggle('now', j === w); });
+    const k = phraseOf[p][w];
+    if (k !== curPh) { markPhrase(p, curPh, false); markPhrase(p, k, true); curPh = k; }
+    curW = w; if (follow && !composing && !selecting()) keepInView(wordEls[p][w]);
+  }
+  if (CHAPTERS.length) {
+    const c = time >= chapStarts[0] ? lastLE(chapStarts, time) : -1;
+    if (c !== curC) { curC = c; if (panelTab === 'chapters') markChapter(); }
+  }
+}
+setInterval(() => setPos(now() + 0.1), 50);   // a timer, not rAF, so it keeps going when the window is in the background
+
+// ---------- scrolling / follow ----------
+const scroller = $('scroller');
+let follow = true;
+function keepInView(el, force) {
+  const r = el.getBoundingClientRect(), s = scroller.getBoundingClientRect(), y = r.top - s.top;
+  if (!force && !(y < s.height * 0.2 || y > s.height * 0.6)) return;
+  const top = Math.max(0, scroller.scrollTop + y - s.height * 0.35);
+  // A jump replaces any smooth scroll still running (mixing the two leaves WebKit with unpainted areas).
+  if (force) { scroller.scrollTo({ top: scroller.scrollTop, behavior: 'instant' }); scroller.scrollTo({ top, behavior: 'instant' }); }
+  else scroller.scrollTo({ top, behavior: 'smooth' });
+}
+// "Back to now" stays out of the way while words are highlighted or a note is being typed.
+function updateBack() { $('back').classList.toggle('show', !follow && !composing && !selActive); }
+function setFollow(on) {
+  follow = on; $('follow').classList.toggle('on', on); $('follow').textContent = 'Follow: ' + (on ? 'on' : 'off');
+  updateBack();
+  if (on && curP >= 0) keepInView(wordEls[curP][Math.max(curW, 0)], true);
+}
+['wheel', 'touchmove'].forEach(ev => scroller.addEventListener(ev, () => { if (follow) setFollow(false); }, { passive: true }));
+$('back').onclick = () => setFollow(true);
+$('follow').onclick = () => setFollow(!follow);
+$('theme').onclick = () => { const r = document.documentElement;
+  r.dataset.theme = getComputedStyle(r).getPropertyValue('--bg').trim() === '#1c1c1f' ? 'light' : 'dark'; };
+
+function seekTo(s, play) {
+  s = Math.max(0, P.dur ? Math.min(s, P.dur - 0.5) : s);
+  cmd(play ? { seek: s, play: true } : { seek: s });
+  P.t = s; P.at = performance.now(); if (play) P.paused = false;
+  clearTimeout(seekTo.idle); seekTo.idle = setTimeout(() => sendPos(false), 2000);   // after the seeking stops
+}
+
+// ---------- resume where I left off (saved next to the transcript by the app) ----------
+let resumed = false;
+function sendPos(playing) { if (resumed) native({ type: 'pos', t: +now().toFixed(1), dur: DATA.duration || P.dur, playing, ok: P.ok, resumed }); }
+setInterval(() => { if (!P.paused) sendPos(true); }, 10000);   // the app writes at most once a minute while playing
+async function resume() {
+  try {
+    const pos = await getJSON('/api/position'), dur = pos.dur || DATA.duration || P.dur;
+    const finished = dur > 0 && pos.t >= dur - Math.max(30, dur * 0.02);
+    if (pos.t > 5 && !finished) {
+      const at = Math.max(0, pos.t - 3);
+      seekTo(at, false); setFollow(true); setPos(at + 0.1); recenter();
+      actionToast('Resumed at ' + fmt(pos.t) + (pos.device ? ' (from ' + pos.device + ')' : ''), 'Start over', () => { seekTo(0, false); setFollow(true); recenter(); });
+      native({ type: 'resumed', t: pos.t, device: pos.device });
+    }
+  } catch (e) {}
+  resumed = true;
+}
+function actionToast(msg, label, fn) {
+  const t = $('atoast'); t.querySelector('span').textContent = msg;
+  const b = t.querySelector('button'); b.textContent = label; b.onclick = () => { t.classList.remove('show'); fn(); };
+  t.classList.add('show'); clearTimeout(actionToast.t); actionToast.t = setTimeout(() => t.classList.remove('show'), 8000);
+}
+function seek(s) { seekTo(s - 0.3, true); setFollow(true); }
+function togglePlay() { if (P.paused) { cmd({ play: true }); P.t = now(); P.at = performance.now(); P.paused = false; }
+                        else { P.t = now(); P.paused = true; cmd({ pause: true }); sendPos(false); } }
+function pause() { if (!P.paused) togglePlay(); else sendPos(false); }
+// Clicks vs. text selection: a plain click (no movement, nothing selected) seeks to the word,
+// after a short wait so a double-click (select one word) or triple-click never seeks.
+// A drag, a double/triple click and a Shift+click select text the normal way.
+let downAt = null, dragged = false, pendingSeek = null;
+const hasSelection = () => { const s = window.getSelection(); return !!s && !s.isCollapsed && tx.contains(s.anchorNode); };
+const selecting = () => downAt !== null || hasSelection();
+tx.addEventListener('mousedown', e => { if (e.button === 0) { downAt = { x: e.clientX, y: e.clientY }; dragged = false; } });
+document.addEventListener('mousemove', e => { if (downAt && Math.abs(e.clientX - downAt.x) + Math.abs(e.clientY - downAt.y) > 4) dragged = true; });
+document.addEventListener('mouseup', () => { downAt = null; });
+tx.addEventListener('dblclick', () => clearTimeout(pendingSeek));
+tx.addEventListener('click', e => {
+  clearTimeout(pendingSeek);
+  if (dragged || e.detail > 1 || e.shiftKey || hasSelection()) return;   // a selection, not a click
+  const el = e.target;
+  let t = null;
+  if (el.classList.contains('nt')) t = +el.dataset.s;
+  else if (el.dataset.w !== undefined) t = DATA.t[+el.dataset.p][+el.dataset.w];
+  else if (el.dataset.s !== undefined) t = +el.dataset.s;
+  else if (el.closest('.chap')) t = +el.closest('.chap').dataset.s;
+  if (t === null) return;
+  pendingSeek = setTimeout(() => { if (!hasSelection()) seek(t); }, 260);
+});
+
+// after a layout change (window size, divider, text size) bring the current word back into view
+function recenter() { if (follow && curP >= 0) setTimeout(() => keepInView(wordEls[curP][Math.max(curW, 0)], true), 0); }
+window.addEventListener('resize', () => { clearTimeout(recenter.t); recenter.t = setTimeout(recenter, 150); });
+
+// ---------- text size ----------
+let fontSize = PREFS.fontSize || 17;
+function applyFont() { document.documentElement.style.setProperty('--fs', fontSize + 'px'); }
+function zoom(d) {
+  fontSize = d === 0 ? 17 : Math.max(12, Math.min(32, fontSize + d));
+  applyFont(); savePrefs({ fontSize }); native({ type: 'font', fontSize });
+  recenter();
+}
+applyFont();
+$('smaller').onclick = () => zoom(-1);
+$('bigger').onclick = () => zoom(1);
+
+// ---------- focus mode ----------
+function setFocus(on) {
+  document.body.classList.toggle('focus', on); $('focusbtn').classList.toggle('on', on);
+  savePrefs({ focus: on }); native({ type: 'focus', on });
+}
+document.body.classList.toggle('focus', !!PREFS.focus); $('focusbtn').classList.toggle('on', !!PREFS.focus);
+$('focusbtn').onclick = () => setFocus(!document.body.classList.contains('focus'));
+
+// ---------- draggable divider ----------
+const app = $('app');
+function applySplit(pct) { document.documentElement.style.setProperty('--split', pct + '%'); }
+applySplit(PREFS.split || 46);
+$('divider').addEventListener('pointerdown', e => {
+  e.preventDefault(); const d = $('divider'); d.setPointerCapture(e.pointerId); document.body.classList.add('dragging');
+  let pct = PREFS.split || 46;
+  const move = ev => {
+    const w = app.clientWidth, x = Math.max(320, Math.min(w - 360, ev.clientX));
+    pct = Math.round(x / w * 1000) / 10; applySplit(pct);
+  };
+  const up = () => { d.removeEventListener('pointermove', move); d.removeEventListener('pointerup', up);
+    document.body.classList.remove('dragging'); savePrefs({ split: pct }); native({ type: 'split', split: pct }); recenter(); };
+  d.addEventListener('pointermove', move); d.addEventListener('pointerup', up);
+});
+
+// ---------- chapters | notes panel ----------
+let panelTab = CHAPTERS.length ? (PREFS.panel || 'chapters') : 'notes';
+if (!CHAPTERS.length) $('tabChapters').classList.add('hide');
+let notesList = [];
+function showPanel(which) {
+  panelTab = which; $('tabChapters').classList.toggle('on', which === 'chapters'); $('tabNotes').classList.toggle('on', which === 'notes');
+  const box = $('plist'); box.textContent = '';
+  if (which === 'chapters') {
+    CHAPTERS.forEach((c, k) => {
+      const it = document.createElement('div'); it.className = 'item'; it.dataset.k = k;
+      it.innerHTML = '<span class="it"></span><span class="ix"></span>';
+      it.children[0].textContent = fmt(c.start); it.children[1].textContent = c.title;
+      it.onclick = () => seek(c.start + 0.3);
+      box.appendChild(it);
+    });
+    markChapter();
+  } else {
+    if (!notesList.length) { box.innerHTML = '<div class="empty">No notes yet. Press N to add one.</div>'; return; }
+    notesList.forEach(n => {
+      const it = document.createElement('div'); it.className = 'item';
+      it.innerHTML = '<span class="it"></span><span><span class="ix"></span></span>';
+      it.children[0].textContent = fmt(n.t) + (n.end != null ? '–' + fmt(n.end) : '');
+      it.querySelector('.ix').textContent = n.text;
+      if (n.quote) { const q = document.createElement('span'); q.className = 'iq'; q.textContent = '“' + n.quote + '”'; it.children[1].appendChild(q); }
+      it.addEventListener('contextmenu', e => noteMenu(e, n));
+      it.onclick = () => {
+        seekTo(n.t - 0.3, true);
+        if (n.el && n.el.isConnected) { setFollow(false); keepInView(n.el, true);
+          n.el.classList.add('flash'); setTimeout(() => n.el.classList.remove('flash'), 1500); }
+        else setFollow(true);
+      };
+      box.appendChild(it);
+    });
+  }
+}
+function markChapter() {
+  if (panelTab !== 'chapters') return;
+  $('plist').querySelectorAll('.item').forEach(it => it.classList.toggle('cur', +it.dataset.k === curC));
+  const cur = $('plist').querySelector('.item.cur'), b = $('plist');
+  if (cur && b.clientHeight > 0) {
+    const top = cur.offsetTop, bottom = top + cur.offsetHeight;
+    if (top < b.scrollTop + 8 || bottom > b.scrollTop + b.clientHeight - 8)
+      b.scrollTo({ top: Math.max(0, top - b.clientHeight / 3), behavior: 'smooth' });
+  }
+}
+$('tabChapters').onclick = () => { showPanel('chapters'); savePrefs({ panel: 'chapters' }); };
+$('tabNotes').onclick = () => { showPanel('notes'); savePrefs({ panel: 'notes' }); };
+showPanel(panelTab);
+
+// ---------- highlighted words ----------
+function selectedWords() {
+  const sel = window.getSelection();
+  if (!sel || sel.isCollapsed || !sel.rangeCount) return null;
+  const range = sel.getRangeAt(0);
+  if (!tx.contains(range.commonAncestorContainer)) return null;
+  const pOf = n => { const el = n.nodeType === 1 ? n : n.parentElement; return el ? el.closest('.p') : null; };
+  const a = pOf(range.startContainer), b = pOf(range.endContainer);
+  const ia = a ? paraEls.indexOf(a) : 0, ib = b ? paraEls.indexOf(b) : paraEls.length - 1;
+  if (ia < 0 || ib < 0) return null;
+  const picked = [];
+  for (let p = ia; p <= ib; p++) wordEls[p].forEach((el, j) => {
+    if (!range.intersectsNode(el)) return;
+    // a boundary that only touches the word (offset 0 at the end, or the very end at the start) does not count
+    if (el.contains(range.endContainer) && range.endOffset === 0) return;
+    if (el.contains(range.startContainer) && range.startContainer.nodeType === 3 && range.startOffset >= range.startContainer.length) return;
+    picked.push([p, j]);
+  });
+  if (!picked.length) return null;
+  const [p0, w0] = picked[0], [p1, w1] = picked[picked.length - 1];
+  // the quote is exactly the selected text (notes, times and headings in between left out)
+  const frag = range.cloneContents();
+  frag.querySelectorAll('.notes, .t, .composer, .chap, .note').forEach(n => n.remove());
+  const exact = frag.textContent.replace(/\s+/g, ' ').trim();
+  return { words: picked, para: p1, start: DATA.t[p0][w0], end: DATA.t[p1][w1],
+           quote: exact || picked.map(([p, j]) => DATA.paras[p].w[j]).join(' ') };
+}
+const selbtn = $('selbtn');
+let selActive = false;
+function placeSelButton() {
+  const s = composing ? null : selectedWords();
+  selActive = !!s; updateBack();
+  if (!s) { selbtn.classList.remove('show'); return; }
+  // anchor at the END of the selection: the last line box of the range
+  const range = window.getSelection().getRangeAt(0);
+  const rects = Array.from(range.getClientRects()).filter(r => r.width > 1 && r.height > 1);
+  const r = rects.length ? rects[rects.length - 1] : range.getBoundingClientRect();
+  const box = scroller.getBoundingClientRect();
+  selbtn.classList.add('show');
+  const bw = selbtn.offsetWidth || 80, bh = selbtn.offsetHeight || 28;
+  let x = r.right + 6, y = r.top + (r.height - bh) / 2;
+  if (x + bw > box.right - 8) { x = Math.max(box.left + 8, r.right - bw); y = r.bottom + 6; }   // no room on the right: just below the end
+  const out = r.bottom < box.top || r.top > box.bottom;
+  selbtn.style.visibility = out ? 'hidden' : 'visible';
+  selbtn.style.left = Math.round(x) + 'px';
+  selbtn.style.top = Math.round(Math.max(box.top + 4, Math.min(box.bottom - bh - 4, y))) + 'px';
+}
+document.addEventListener('selectionchange', () => { clearTimeout(placeSelButton.t); placeSelButton.t = setTimeout(placeSelButton, 120); });
+scroller.addEventListener('scroll', () => { if (selbtn.classList.contains('show')) placeSelButton(); }, { passive: true });
+selbtn.addEventListener('mousedown', e => e.preventDefault());   // keep the selection
+selbtn.addEventListener('click', () => openComposer(selectedWords()));
+
+// ---------- notes (saved in the transcript .md by the app) ----------
+let notesSig = '', composing = null, noteCount = 0;
+const norm = w => String(w).toLowerCase().replace(/[^a-z0-9]/g, '');
+function coveredWords(n) {
+  if (n.time == null) return [];
+  if (n.quote) {
+    // "first words … last words" (a long highlight) or the whole highlight
+    const parts = n.quote.split(' … ');
+    const head = parts[0].split(/\s+/).filter(Boolean).map(norm);
+    const tail = parts.length > 1 ? parts[parts.length - 1].split(/\s+/).filter(Boolean).map(norm) : null;
+    const at = (i, q) => q.every((w, k) => { const f = flat[i + k]; return !!f && norm(DATA.paras[f[0]].w[f[1]]) === w; });
+    for (let i = Math.max(0, lastLE(flatT, n.time - 1.01) - 1); i < flat.length && flatT[i] < n.time + 2; i++) {
+      if (!at(i, head)) continue;
+      if (!tail) return flat.slice(i, i + head.length);
+      const last = n.end != null ? n.end + 2 : n.time + 600;
+      for (let j = i + head.length; j < flat.length && flatT[j] < last; j++) if (at(j, tail)) return flat.slice(i, j + tail.length);
+    }
+  }
+  if (n.end == null) return [];
+  const out = [];
+  for (let i = lastLE(flatT, n.time - 0.01); i < flat.length && flatT[i] < n.end + 1; i++) if (flatT[i] >= n.time) out.push(flat[i]);
+  return out;
+}
+const tint = (list, on, cls) => list.forEach(([p, j]) => wordEls[p][j].classList.toggle(cls || 'cover', on));
+function renderNotes(list) {
+  const sig = JSON.stringify(list); if (sig === notesSig) return; notesSig = sig;
+  if (noteCount !== list.length) native({ type: 'notes', count: list.length });
+  noteCount = list.length;
+  document.querySelectorAll('.body span.cover').forEach(s => s.classList.remove('cover'));
+  noteBoxes.forEach(b => b.querySelectorAll('.note').forEach(n => n.remove()));
+  notesList = [];
+  const perPara = {};
+  list.forEach(n => {
+    const index = perPara[n.para] = (perPara[n.para] ?? -1) + 1;
+    const box = noteBoxes[n.para]; if (!box) return;
+    const el = document.createElement('div'); el.className = 'note';
+    const t = n.time ?? starts[n.para];
+    const ts = document.createElement('span'); ts.className = 'nt';
+    ts.textContent = '💬 ' + fmt(t) + (n.end != null ? '–' + fmt(n.end) : ''); ts.dataset.s = t;
+    el.append(ts, document.createTextNode(n.text));
+    if (n.quote) { const q = document.createElement('span'); q.className = 'nq'; q.textContent = '“' + n.quote + '”'; el.appendChild(q); }
+    const cover = coveredWords(n);
+    if (n.quote || n.end != null) native({ type: 'note-cover', para: n.para, time: n.time, end: n.end, quote: n.quote,
+      covered: cover.map(([p, j]) => DATA.paras[p].w[j]).join(' ') });
+    if (cover.length) {
+      el.addEventListener('mouseenter', () => tint(cover, true));
+      el.addEventListener('mouseleave', () => { if (!el.classList.contains('pinned')) tint(cover, false); });
+      el.addEventListener('click', e => { if (e.target === ts) return;
+        el.classList.toggle('pinned'); tint(cover, el.classList.contains('pinned')); });
+    }
+    box.insertBefore(el, box.querySelector('.composer'));
+    const entry = { t, end: n.end, text: n.text, quote: n.quote, el, para: n.para, index, time: n.time ?? null };
+    el.addEventListener('contextmenu', e => noteMenu(e, entry));
+    notesList.push(entry);
+  });
+  notesList.sort((a, b) => a.t - b.t);
+  if (panelTab === 'notes') showPanel('notes');
+}
+async function loadNotes() { try { renderNotes(await getJSON('/api/notes')); } catch (e) {} }
+loadNotes(); setInterval(loadNotes, 1000);   // picks up notes typed in Obsidian too
+
+function openComposer(sel, edit) {
+  if (composing) { composing.querySelector('textarea').focus(); return; }
+  selbtn.classList.remove('show');
+  if (edit) sel = null;
+  const para = edit ? edit.para : sel ? sel.para : Math.max(curP, 0), time = sel ? sel.start : now(), wasPlaying = !P.paused;
+  if (wasPlaying) togglePlay();
+  if (sel) { window.getSelection().removeAllRanges(); tint(sel.words, true, 'pending'); }
+  const c = document.createElement('div'); c.className = 'composer';
+  const hint = document.createElement('div'); hint.className = 'hint';
+  const qw = sel ? sel.quote.split(' ') : [];
+  const short = qw.length > 15 ? qw.slice(0, 6).join(' ') + ' … ' + qw.slice(-6).join(' ') : qw.join(' ');
+  hint.textContent = edit ? '✎ edit note at ' + fmt(edit.t) + (edit.end != null ? '–' + fmt(edit.end) : '') + ' — Enter to save, Esc to cancel'
+                   : sel ? '💬 note on ' + fmt(sel.start) + '–' + fmt(sel.end) + ' “' + short + '” — Enter to save, Esc to cancel'
+                         : '💬 note at ' + fmt(time) + ' — Enter to save, Esc to cancel';
+  const ta = document.createElement('textarea');
+  if (edit) ta.value = edit.text;
+  c.append(hint, ta);
+  // inline, right under the highlighted passage (in its paragraph), or in place of the note being edited
+  if (edit && edit.el && edit.el.isConnected) { edit.el.after(c); edit.el.style.display = 'none'; }
+  else noteBoxes[para].appendChild(c);
+  composing = c; selActive = false; updateBack();
+  ta.focus({ preventScroll: true });
+  const cr = c.getBoundingClientRect(), sr = scroller.getBoundingClientRect();
+  if (cr.bottom > sr.bottom - 20 || cr.top < sr.top) keepInView(c, true);
+  const close = () => { c.remove(); composing = null; updateBack(); if (sel) tint(sel.words, false, 'pending');
+    if (edit && edit.el) edit.el.style.display = ''; if (wasPlaying) togglePlay(); };
+  ta.addEventListener('keydown', async e => {
+    e.stopPropagation();
+    if (e.key === 'Escape') { e.preventDefault(); close(); }
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault(); const text = ta.value.trim(); if (!text) return close();
+      if (edit) {
+        const ok = await noteChange('edit', edit, { newText: text });
+        if (ok) { close(); toast('Note updated in .md'); } else close();
+        return;
+      }
+      const body = { para, time, text };
+      if (sel) { body.end = sel.end; body.quote = sel.quote; }
+      try {
+        const r = await fetch('/api/notes', { method: 'POST', body: JSON.stringify(body) });
+        const out = await r.json();
+        if (!r.ok) throw new Error(out.error || r.status);
+        close(); renderNotes(out); toast('Note saved to .md');
+        native({ type: 'note-saved', para, time, end: body.end, quote: body.quote, text });
+      } catch (err) { toast('Could not save: ' + err.message); native({ type: 'error', message: 'note: ' + err.message }); }
+    }
+  });
+}
+// ---------- right-click on a note: Edit / Copy / Delete ----------
+const menu = $('menu');
+function closeMenu() { menu.classList.remove('show'); }
+function noteMenu(e, n) {
+  e.preventDefault(); e.stopPropagation();
+  menu.innerHTML = '';
+  [['Edit note', () => openComposer(null, n)],
+   ['Copy note', () => { native({ type: 'copy', text: n.text + (n.quote ? '\n“' + n.quote + '”' : '') }); toast('Note copied'); }],
+   ['Delete note…', () => confirmDelete(n), 'danger']].forEach(([label, fn, cls]) => {
+    const b = document.createElement('button'); b.textContent = label; if (cls) b.className = cls;
+    b.onclick = () => { closeMenu(); fn(); }; menu.appendChild(b);
+  });
+  menu.classList.add('show');
+  const w = menu.offsetWidth, h = menu.offsetHeight;
+  menu.style.left = Math.min(e.clientX, window.innerWidth - w - 6) + 'px';
+  menu.style.top = Math.min(e.clientY, window.innerHeight - h - 6) + 'px';
+  native({ type: 'note-menu', para: n.para, index: n.index });
+}
+document.addEventListener('mousedown', e => { if (!menu.contains(e.target)) closeMenu(); });
+document.addEventListener('scroll', closeMenu, true);
+
+const confirmBox = $('confirm');
+const confirmOpen = () => confirmBox.classList.contains('show');
+let confirmAction = null;
+function closeConfirm() { confirmBox.classList.remove('show'); confirmAction = null; }
+function confirmDelete(n) {
+  $('confirmLine').textContent = '“' + (n.text.split('\n')[0].length > 90 ? n.text.split('\n')[0].slice(0, 88) + '…' : n.text.split('\n')[0]) + '”';
+  confirmAction = async () => { closeConfirm(); if (await noteChange('delete', n)) toast('Note deleted'); };
+  confirmBox.classList.add('show'); $('confirmDelete').focus();
+  native({ type: 'confirm-delete', para: n.para, index: n.index });
+}
+$('confirmCancel').onclick = closeConfirm;
+$('confirmDelete').onclick = () => confirmAction && confirmAction();
+confirmBox.addEventListener('mousedown', e => { if (e.target === confirmBox) closeConfirm(); });
+confirmBox.addEventListener('keydown', e => {
+  e.stopPropagation();
+  if (e.key === 'Escape') { e.preventDefault(); closeConfirm(); }
+  if (e.key === 'Enter') { e.preventDefault(); confirmAction && confirmAction(); }
+});
+
+// Sends the note's paragraph, its place among that paragraph's notes and the text shown here;
+// the app changes the .md only if the file still has that note.
+async function noteChange(kind, n, extra) {
+  try {
+    const r = await fetch('/api/notes/' + kind, { method: 'POST',
+      body: JSON.stringify(Object.assign({ para: n.para, index: n.index, text: n.text, time: n.time }, extra || {})) });
+    const out = await r.json();
+    if (!r.ok) throw new Error(out.error || r.status);
+    renderNotes(out.notes); native({ type: 'note-' + kind, para: n.para, index: n.index });
+    return true;
+  } catch (err) {
+    toast(String(err.message).startsWith('Note changed') ? 'Note changed in the file — try again' : 'Could not change the note: ' + err.message);
+    native({ type: 'error', message: 'note ' + kind + ': ' + err.message }); notesSig = ''; loadNotes();
+    return false;
+  }
+}
+
+$('addnote').addEventListener('mousedown', e => e.preventDefault());   // keep a highlight
+$('addnote').onclick = () => openComposer(selectedWords());
+
+// ---------- find in transcript ----------
+let searchText = null, wordStart = [], hits = [], hitIdx = -1;
+const findOpen = () => $('find').classList.contains('show');
+function buildSearch() {
+  if (searchText !== null) return;
+  const parts = []; let pos = 0;
+  flat.forEach(([p, j]) => { const w = DATA.paras[p].w[j].toLowerCase(); wordStart.push(pos); parts.push(w); pos += w.length + 1; });
+  searchText = parts.join(' ');
+}
+function clearHits() { hits.forEach(h => h.forEach(i => { const [p, j] = flat[i]; wordEls[p][j].classList.remove('hit', 'hitcur'); })); hits = []; hitIdx = -1; }
+function runFind() {
+  buildSearch(); clearHits();
+  const q = $('findq').value.trim().toLowerCase().replace(/\s+/g, ' ');
+  if (q) {
+    let at = searchText.indexOf(q);
+    while (at >= 0 && hits.length < 5000) {
+      const a = lastLE(wordStart, at), b = lastLE(wordStart, at + q.length - 1), h = [];
+      for (let i = a; i <= b; i++) h.push(i);
+      hits.push(h); at = searchText.indexOf(q, at + 1);
+    }
+    hits.forEach(h => h.forEach(i => { const [p, j] = flat[i]; wordEls[p][j].classList.add('hit'); }));
+  }
+  if (hits.length) {
+    // start at the first match after the current position
+    const ti = flat.findIndex(([p]) => p >= Math.max(curP, 0));
+    hitIdx = Math.max(0, hits.findIndex(h => h[0] >= ti)); goHit(0);
+  } else { $('fcount').textContent = q ? 'no matches' : ''; }
+  native({ type: 'find', q, matches: hits.length });
+}
+function goHit(d) {
+  if (!hits.length) return;
+  if (hitIdx >= 0) hits[hitIdx].forEach(i => { const [p, j] = flat[i]; wordEls[p][j].classList.remove('hitcur'); });
+  hitIdx = (hitIdx + d + hits.length) % hits.length;
+  hits[hitIdx].forEach(i => { const [p, j] = flat[i]; wordEls[p][j].classList.add('hitcur'); });
+  const [p, j] = flat[hits[hitIdx][0]];
+  setFollow(false); keepInView(wordEls[p][j], true);
+  $('fcount').textContent = (hitIdx + 1) + ' of ' + hits.length;
+}
+function openFind() { $('find').classList.add('show'); document.body.classList.add('finding'); const q = $('findq'); q.focus(); q.select(); if (q.value) runFind(); }
+function closeFind() { $('find').classList.remove('show'); document.body.classList.remove('finding'); clearHits(); $('fcount').textContent = ''; $('findq').blur(); }
+$('findq').addEventListener('input', () => { clearTimeout(runFind.t); runFind.t = setTimeout(runFind, 120); });
+$('findq').addEventListener('keydown', e => {
+  e.stopPropagation();
+  if (e.key === 'Enter') { e.preventDefault(); clearTimeout(runFind.t); if (hitIdx < 0) runFind(); else goHit(e.shiftKey ? -1 : 1); }
+  if (e.key === 'Escape') { e.preventDefault(); closeFind(); }
+});
+$('fnext').onclick = () => goHit(1); $('fprev').onclick = () => goHit(-1); $('fclose').onclick = closeFind;
+
+// ---------- shortcuts cheat-sheet ----------
+const sheet = $('sheet');
+const sheetOpen = () => sheet.classList.contains('show');
+function toggleSheet(on) { sheet.classList.toggle('show', on ?? !sheetOpen()); native({ type: 'shortcuts', open: sheetOpen() }); }
+sheet.addEventListener('mousedown', e => { if (e.target === sheet) toggleSheet(false); });
+$('keysbtn').onclick = () => toggleSheet();
+if (!PREFS.hintShown) { setTimeout(() => toast('Press ? for shortcuts'), 1500); savePrefs({ hintShown: true }); }
+
+// ---------- keys (same as the Video Speed Controller extension) ----------
+function handleKey(key, forwarded, repeat, shift) {
+  const k = key.toLowerCase(), r = speed;
+  if (k === '?') { native({ type: 'key', key: '?', forwarded: !!forwarded }); toggleSheet(); return true; }
+  if (sheetOpen()) { if (k === 'escape') { toggleSheet(false); return true; } return false; }
+  if (k === 'f' && shift) { native({ type: 'key', key: 'shift+f', forwarded: !!forwarded }); setFocus(!document.body.classList.contains('focus')); return true; }
+  const act = {
+    ' ': togglePlay,
+    s: () => setSpeed(r - 0.1), d: () => setSpeed(r + 0.1),
+    r: () => setSpeed(r === 1 ? lastSpeed : 1),
+    g: () => setSpeed(r === favSpeed ? 1 : favSpeed),
+    z: () => seekTo(now() - 10), x: () => seekTo(now() + 10),
+    arrowleft: () => seekTo(now() - 5), arrowright: () => seekTo(now() + 5),
+    v: () => { const b = $('speed'); b.classList.toggle('hide'); savePrefs({ badgeHidden: b.classList.contains('hide') }); },
+    f: () => setFollow(!follow),
+    n: () => openComposer(selectedWords()),
+  }[k];
+  if (!act) return false;
+  native({ type: 'key', key: k, forwarded: !!forwarded, repeat: !!repeat });
+  act();
+  return true;
+}
+document.addEventListener('keydown', e => {
+  if (e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === 'f') { e.preventDefault(); openFind(); return; }
+  if (confirmOpen()) return;
+  if (e.key === 'Escape' && menu.classList.contains('show')) { closeMenu(); return; }
+  if (e.key === 'Escape' && sheetOpen()) { toggleSheet(false); return; }
+  if (e.key === 'Escape' && findOpen()) { closeFind(); return; }
+  if (e.metaKey || e.ctrlKey || e.altKey || /TEXTAREA|INPUT/.test(e.target.tagName)) return;
+  // Shift+←/→ (and Shift+Alt) adjust a text selection: never a seek
+  if (e.shiftKey && /^Arrow/.test(e.key)) return;
+  if (handleKey(e.key, false, e.repeat, e.shiftKey)) e.preventDefault();
+});
+document.addEventListener('mousedown', e => native({ type: 'click', target: e.target.className || e.target.tagName }), true);
+
+// ---------- for the app's menus ----------
+window.FA = { pause, zoom, find: openFind, toggleFocus: () => setFocus(!document.body.classList.contains('focus')),
+              state: () => ({ t: now(), paused: P.paused, rate: P.rate, speed, h: P.h, q: P.q, ok: P.ok, para: curP, word: curW }),
+              zoomToast: text => toast(text) };
+native({ type: 'ready', paras: DATA.paras.length, chapters: CHAPTERS.length });
+})();
+</script>
+</body>
+</html>
