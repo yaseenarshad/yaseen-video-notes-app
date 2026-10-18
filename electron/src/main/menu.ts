@@ -2,7 +2,7 @@ import { app, Menu, type MenuItemConstructorOptions } from 'electron'
 import type { MainWindow } from './window'
 
 /** The app menus (same items and keys as the Swift app's). */
-export function buildMenu(get: () => MainWindow | null): void {
+export function buildMenu(get: () => MainWindow | null, actions: { updateYTDLP: () => void }): void {
   const w = (f: (m: MainWindow) => void) => () => { const m = get(); if (m) f(m) }
   const tabs: MenuItemConstructorOptions[] = Array.from({ length: 9 }, (_, i) => ({
     label: i === 8 ? 'Last Tab' : `Tab ${i + 1}`,
@@ -14,6 +14,7 @@ export function buildMenu(get: () => MainWindow | null): void {
       label: app.name,
       submenu: [
         { role: 'about', label: 'About Yaseen Video Notes' },
+        { id: 'update-ytdlp', label: 'Update yt-dlp Now', click: () => actions.updateYTDLP() },
         { type: 'separator' },
         { role: 'hide', label: 'Hide Yaseen Video Notes' },
         { role: 'hideOthers' },

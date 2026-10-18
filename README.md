@@ -18,7 +18,10 @@ Notes for coding agents: [CLAUDE.md](CLAUDE.md).
 ## Needs
 
 - macOS 14+ on Apple silicon, Node 20+ (`brew install node`)
-- `yt-dlp` (`brew install yt-dlp`), found in `/opt/homebrew/bin`, `~/Library/Python/3.*/bin` or `/usr/local/bin`
+- `yt-dlp` (`brew install yt-dlp`), found in `/opt/homebrew/bin`, `~/Library/Python/3.*/bin` or `/usr/local/bin`.
+  The app keeps it up to date by itself (`brew upgrade yt-dlp`, pip or `yt-dlp -U`, by how it was installed): daily
+  when it is over 14 days old, after a failed caption download when it is over 7 days old (then tries again), and
+  from **Yaseen Video Notes → Update yt-dlp Now**.
 
 ## Build and run
 

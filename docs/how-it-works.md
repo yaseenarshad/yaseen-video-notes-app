@@ -15,9 +15,15 @@ folders it made use the same files (see "Files from the old Swift version" at th
 ## 1. The pipeline: link → folder
 
 1. **You paste a YouTube link** (New Tab page, or `Yaseen Video Notes --make <url> --out <dir>`).
-2. **yt-dlp gets the captions and the metadata — not the video.** It is free, needs no login, and the app runs:
-   `yt-dlp --skip-download --write-subs --write-auto-subs --sub-lang "en,en-US,en-orig" --sub-format vtt --write-info-json --extractor-args "youtube:player_client=tv,web,android" -o "<tmp>/%(id)s.%(ext)s" <url>`
-   into a temp folder. The binary is looked up in `/opt/homebrew/bin`, `~/Library/Python/3.*/bin`, `/usr/local/bin`.
+2. **yt-dlp gets the captions and the metadata — not the video.** It is free, needs no login, and the app runs
+   it twice into a temp folder (`fetchCaptions` in `core/folderMaker.ts`):
+   - first only the metadata: `yt-dlp --skip-download --write-info-json --extractor-args "youtube:player_client=tv,web,android" -o "<tmp>/%(id)s.%(ext)s" <url>`
+   - then ONE caption track, picked from that info json by `chooseCaptionTrack`, loaded with `--load-info-json`:
+     human English (`en`, `en-US`, `en-GB`, any `en-*`), else the original automatic English (`en-orig`), and only
+     last automatic `en`. For many videos automatic `en` is a machine translation of `en-orig` (same words) and
+     YouTube rate-limits translations (HTTP 429), so asking for both made whole downloads fail.
+   A 429 is retried twice (after 5 s and 15 s). The binary is looked up in `/opt/homebrew/bin`,
+   `~/Library/Python/3.*/bin`, `/usr/local/bin`.
 3. **The app turns the captions into two files** and throws the caption file away:
    - `<slug>.md` — the readable transcript: timestamped paragraphs. Your notes live here.
    - `.follow-along.json` — every word with the second it is spoken, per paragraph, plus chapters. The player
@@ -320,8 +326,18 @@ Hotkeys are ignored while typing in a note, the find box or a dialog.
 
 ## Known failure modes and fixes
 
-- **"yt-dlp failed" / no captions downloaded:** YouTube changes often; update with `brew upgrade yt-dlp`
-  (or `pip3 install -U --user yt-dlp`). The error box shows yt-dlp's last ERROR lines.
+- **yt-dlp outdated** (the main cause of "yt-dlp failed" / 429 / no captions downloaded; YouTube changes often):
+  the app updates it itself (`core/ytdlpUpdate.ts`): **daily** (a few seconds after start, at most once in 24 h,
+  `ytdlpCheckedAt` in settings.json) when it is more than 14 days old, with a toast "yt-dlp updated to …" only
+  when something changed; **on failure** — when a caption download fails because of yt-dlp (including 429 after
+  the retries) and yt-dlp is more than 7 days old, it is updated and the download tried once more (the progress
+  lines say "Updating yt-dlp…"; if the update fails, the error says so); and **from the menu** (Yaseen Video Notes →
+  Update yt-dlp Now). The command follows the install: `brew upgrade yt-dlp` (Cellar symlink, or `brew list`
+  knows it), `python3 -m pip install --user -U yt-dlp` (`~/Library/Python/3.*/bin`), else `yt-dlp -U`; never sudo.
+  One update at a time; downloads wait for it, and it waits for running downloads. After an update found nothing
+  newer, failures do not trigger another for an hour. By hand: `brew upgrade yt-dlp`. The error box shows
+  yt-dlp's last ERROR lines. Test hook: `VIDEO_NOTES_FAKE_YTDLP_VERSION=2026.01.01` makes the app treat yt-dlp as
+  that old (the update itself is real).
 - **"yt-dlp was not found":** install it (`brew install yt-dlp`).
 - **"This video has no English captions":** nothing to follow along with; the app makes no folder.
 - **"The YouTube player is not reporting"** under the video: the video may not allow embedding, or the network

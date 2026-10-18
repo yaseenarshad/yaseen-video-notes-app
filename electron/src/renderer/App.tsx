@@ -15,7 +15,7 @@ export function App() {
     const offWork = window.fa.onWork((e) => setWork((w) => ({ ...w, [e.tabId]: e.step === 'working' && !e.line && w[e.tabId]?.step === 'working' ? w[e.tabId] : e })))
     let t: ReturnType<typeof setTimeout> | undefined
     const offCmd = window.fa.onCommand((c) => {
-      if (c.kind === 'toast') { setToast(c.text); clearTimeout(t); t = setTimeout(() => setToast(null), 1200) }
+      if (c.kind === 'toast') { setToast(c.text); clearTimeout(t); t = setTimeout(() => setToast(null), c.ms ?? 1200) }
     })
     return () => { offState(); offWork(); offCmd() }
   }, [])

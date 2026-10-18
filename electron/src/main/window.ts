@@ -230,6 +230,14 @@ export class MainWindow {
     DebugLog.log(`zoom ${text}`)
   }
 
+  /** A short message over whatever the active tab shows (the player's toast, or the shell's on a New Tab). */
+  notify(text: string, ms = 4000): void {
+    if (this.closing) return
+    if (this.activeSession) this.activeSession.run(`FA.notice(${JSON.stringify(text)}, ${ms})`)
+    else this.command({ kind: 'toast', text, ms })
+    DebugLog.log(`notice: ${text}`)
+  }
+
   find(): void {
     if (this.activeSession) this.activeSession.run('FA.find()')
     else if (this.activeId) this.command({ kind: 'focusFilter', tabId: this.activeId })

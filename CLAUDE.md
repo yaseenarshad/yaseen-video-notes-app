@@ -36,6 +36,9 @@ the fresh build (copied with `ditto`, not a symlink) and opens it. The first tim
 "Follow Along" (`com.yaseen.followalong`) so its tabs are saved before the new app copies its settings.
 Environment variables are `VIDEO_NOTES_*` (`DEBUG_LOG`, `USER_DATA`, `MUTE`, `NO_IMPORT`); the old `FOLLOW_ALONG_*` names still work.
 
+yt-dlp upkeep: the app updates yt-dlp itself (daily if > 14 days old, after a yt-dlp failure if > 7 days old, menu
+"Update yt-dlp Now"); `VIDEO_NOTES_FAKE_YTDLP_VERSION=2026.01.01` makes a test instance treat it as old (the update is real).
+
 Homebrew tools need full paths in agent shells (`/opt/homebrew/bin/node`, `/opt/homebrew/bin/yt-dlp`).
 Do not commit unless asked.
 
@@ -49,12 +52,14 @@ Do not commit unless asked.
   - `noteAnchor.ts` — where a note card shows in the player (after the word it is about); self-contained,
     served to the page as `/note-anchor.js` via `toString()`, so keep it free of imports and outside helpers
   - `migrate.ts` — first launch under the new name: copies the old `Follow Along/settings.json` once (read-only on the old folder)
-  - `folderMaker.ts` — yt-dlp runner, make / reuse / set up folders, New Tab folder list
+  - `folderMaker.ts` — yt-dlp runner (one caption track, 429 retries, self-heal), make / reuse / set up folders, New Tab folder list
+  - `ytdlpUpdate.ts` — keeps yt-dlp up to date: version age, update method by install path (brew / pip / -U),
+    one update at a time and never during a download, self-heal after a failed download
   - `status.ts` — per-video status in the yaseen-docs-app format; `progress.ts` — the resume file
   - `text.ts` — Swift-compatible whitespace / trimming / number parsing (byte-identical output)
   - `*.test.ts` — the ported Swift unit tests (+ `fixtures.ts`)
 - `main/` — the Electron main process
-  - `index.ts` — entry: CLI modes, app start, restore tabs; `menu.ts` — app menus and keys
+  - `index.ts` — entry: CLI modes, app start, restore tabs, the daily yt-dlp check and "Update yt-dlp Now"; `menu.ts` — app menus and keys
   - `window.ts` — the window: tab strip (shell view) + one WebContentsView per video, IPC, dialogs
   - `session.ts` — one video: local HTTP server (notes/prefs/position API) + its view + iframe injection
   - `server.ts` — the 127.0.0.1 HTTP server; `settings.ts` — prefs JSON in userData (+ one-time import of the Swift app's UserDefaults); `debugLog.ts`

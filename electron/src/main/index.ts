@@ -1,8 +1,9 @@
 import { app, dialog } from 'electron'
 import { join } from 'node:path'
 import { isCLI, flag, runCLI } from '../cli/run'
-import { ensure, NeedsFormatting } from '../core/folderMaker'
+import { ensure, findYTDLP, NeedsFormatting, YTDLP_MISSING } from '../core/folderMaker'
 import { migrateSettings, OLD_APP_NAME } from '../core/migrate'
+import { checkDue, DAILY_STALE_DAYS, describe, downloadsRunning, isOlderThan, isUpdating, updateYTDLP, versionForAge } from '../core/ytdlpUpdate'
 import { DebugLog } from './debugLog'
 import { buildMenu } from './menu'
 import { Settings } from './settings'
@@ -58,7 +59,7 @@ function startApp(): void {
     }
     Settings.load()
     if (!userData && !openPath && !env('NO_IMPORT')) Settings.importFromSwift()
-    buildMenu(() => main)
+    buildMenu(() => main, { updateYTDLP: () => void updateYTDLPNow(() => main) })
     const rendererURL = !app.isPackaged && process.env.ELECTRON_RENDERER_URL ? process.env.ELECTRON_RENDERER_URL : null
     main = new MainWindow({
       remember: openPath === null,
@@ -69,6 +70,9 @@ function startApp(): void {
       rendererFile: join(__dirname, '../renderer/index.html'),
     })
     DebugLog.log(`started (Electron ${process.versions.electron}, Chrome ${process.versions.chrome}) userData=${app.getPath('userData')}`)
+    // Keep yt-dlp up to date: a few seconds after the window is up, then hourly (each check runs at most once a day).
+    setTimeout(() => void dailyYTDLPCheck(() => main), 5000)
+    setInterval(() => void dailyYTDLPCheck(() => main), 60 * 60_000).unref()
     // --open <path> opens just that video; otherwise the tabs of last time come back.
     const paths = openPath ? [openPath.startsWith('~/') ? app.getPath('home') + openPath.slice(1) : openPath] : Settings.openTabs
     if (!paths.length) { main.newTab(); return }
@@ -103,4 +107,69 @@ function startApp(): void {
   app.on('window-all-closed', () => app.quit())
   // `kill` (SIGTERM) and Ctrl+C quit like ⌘Q: positions and open tabs are written first.
   for (const sig of ['SIGTERM', 'SIGINT'] as const) process.on(sig, () => app.quit())
+}
+
+// ---------- yt-dlp upkeep (core/ytdlpUpdate.ts) ----------
+
+let checking = false
+
+/**
+ * The daily check: at most once in 24 h (`ytdlpCheckedAt` in settings.json), updates yt-dlp in the background
+ * when it is more than 14 days old. Quiet unless it updated. Skipped (tried again in 10 min) while a caption
+ * download or an update runs.
+ */
+async function dailyYTDLPCheck(get: () => MainWindow | null): Promise<void> {
+  if (checking) return
+  if (!checkDue(Settings.ytdlpCheckedAt)) { DebugLog.log(`yt-dlp check: not due (last ${Settings.ytdlpCheckedAt})`); return }
+  if (downloadsRunning() > 0 || isUpdating()) {
+    DebugLog.log('yt-dlp check: a download or update is running; trying again in 10 min')
+    setTimeout(() => void dailyYTDLPCheck(get), 10 * 60_000).unref()
+    return
+  }
+  checking = true
+  try {
+    const bin = findYTDLP()
+    if (!bin) { DebugLog.log('yt-dlp check: yt-dlp not found'); return }
+    const version = await versionForAge(bin)
+    if (isOlderThan(version, DAILY_STALE_DAYS)) {
+      DebugLog.log(`yt-dlp check: ${version} is more than ${DAILY_STALE_DAYS} days old; updating`)
+      const r = await updateYTDLP(bin, (l) => DebugLog.log(`yt-dlp update: ${l}`))
+      DebugLog.log(`yt-dlp check: ${describe(r)}`)
+      if (r.kind === 'updated') get()?.notify(`yt-dlp updated to ${r.to}`, 5000)
+    } else {
+      DebugLog.log(`yt-dlp check: ${version ?? 'unknown version'} is recent enough`)
+    }
+  } catch (e) {
+    DebugLog.log(`yt-dlp check failed: ${e}`)
+  } finally {
+    checking = false
+    Settings.ytdlpCheckedAt = new Date().toISOString()
+  }
+}
+
+/** Yaseen Video Notes → Update yt-dlp Now: updates and says how it went (toast; a dialog when it failed). */
+async function updateYTDLPNow(get: () => MainWindow | null): Promise<void> {
+  const parent = () => get()?.win
+  const bin = findYTDLP()
+  if (!bin) {
+    const w = parent()
+    const opts = { type: 'warning' as const, message: 'yt-dlp was not found', detail: YTDLP_MISSING }
+    void (w ? dialog.showMessageBox(w, opts) : dialog.showMessageBox(opts))
+    return
+  }
+  get()?.notify('Updating yt-dlp…', 180_000)
+  const r = await updateYTDLP(bin, (l) => {
+    DebugLog.log(`yt-dlp update: ${l}`)
+    if (l.startsWith('Waiting')) get()?.notify(l, 180_000)
+  })
+  DebugLog.log(`yt-dlp menu: ${describe(r)}`)
+  if (r.kind !== 'failed') {
+    Settings.ytdlpCheckedAt = new Date().toISOString()
+    get()?.notify(describe(r), 5000)
+    return
+  }
+  get()?.notify('Could not update yt-dlp', 1500)
+  const w = parent()
+  const opts = { type: 'warning' as const, message: 'Could not update yt-dlp', detail: r.reason }
+  await (w ? dialog.showMessageBox(w, opts) : dialog.showMessageBox(opts))
 }

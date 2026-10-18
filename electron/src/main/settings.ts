@@ -25,6 +25,8 @@ interface Data {
   groupByStatus: boolean
   bounds?: { x: number; y: number; width: number; height: number }
   importedFromSwift?: boolean
+  /** When the daily yt-dlp check last ran (ISO time). */
+  ytdlpCheckedAt?: string
 }
 
 const NUMBER_PREFS: Record<string, [number, number]> = {
@@ -101,6 +103,10 @@ class SettingsStore {
 
   get groupByStatus(): boolean { return this.d.groupByStatus }
   set groupByStatus(v: boolean) { this.d.groupByStatus = v; this.save() }
+
+  /** When the daily yt-dlp check last ran (ISO time). */
+  get ytdlpCheckedAt(): string | undefined { return this.d.ytdlpCheckedAt }
+  set ytdlpCheckedAt(v: string | undefined) { this.d.ytdlpCheckedAt = v; this.save() }
 
   get bounds(): Data['bounds'] { return this.d.bounds }
   set bounds(v: Data['bounds']) { this.d.bounds = v; this.save() }

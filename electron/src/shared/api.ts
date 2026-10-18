@@ -24,7 +24,7 @@ export interface MenuSpec {
 export interface LauncherInfo { pinned: string[]; outputParent: string; groupByStatus: boolean; home: string }
 
 /** Main → shell commands from the app menu. */
-export type ShellCommand = { kind: 'focusFilter'; tabId: string } | { kind: 'toast'; text: string }
+export type ShellCommand = { kind: 'focusFilter'; tabId: string } | { kind: 'toast'; text: string; ms?: number }
 
 export interface FaAPI {
   state(): Promise<ShellState>

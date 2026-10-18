@@ -5,7 +5,8 @@ import { homedir, tmpdir } from 'node:os'
 import { basename, dirname, extname, join } from 'node:path'
 import { parseVTT } from './captions'
 import { atomicWrite } from './atomic'
-import { FollowAlongError } from './errors'
+import { FollowAlongError, YTDLPError } from './errors'
+import { healAfterFailure, toolEnv, withSelfHeal } from './ytdlpUpdate'
 import * as Notes from './notes'
 import { fraction, finished, readProgress, type Progress } from './progress'
 import { trimWS } from './text'
@@ -44,20 +45,67 @@ export function findYTDLP(): string | null {
 export const YTDLP_MISSING = `yt-dlp was not found. Install it with "brew install yt-dlp" (or "pip3 install --user yt-dlp"), then try again.
 Looked in /opt/homebrew/bin, ~/Library/Python/3.*/bin and /usr/local/bin.`
 
-/** Downloads metadata and English captions (no video) into `dir`. */
-export function fetchCaptions(url: string, dir: string, binary: string, progress: ProgressFn): Promise<void> {
-  const args = [
-    '--skip-download', '--write-subs', '--write-auto-subs',
-    '--sub-lang', 'en,en-US,en-orig', '--sub-format', 'vtt',
-    '--write-info-json', '--no-playlist', '--newline',
-    '--extractor-args', 'youtube:player_client=tv,web,android',
-    '-o', join(dir, '%(id)s.%(ext)s'),
-    url,
-  ]
-  const home = homedir()
-  const env = { ...process.env, PATH: ['/opt/homebrew/bin', '/usr/local/bin', `${home}/.deno/bin`, '/usr/bin', '/bin', '/usr/sbin', '/sbin', process.env.PATH ?? ''].join(':') }
-  // Run as plain Node inside Electron's helper environment too.
-  delete (env as Record<string, string | undefined>).ELECTRON_RUN_AS_NODE
+/** One caption track to download: a language code and whether it is YouTube's automatic captions. */
+export interface CaptionTrack { lang: string; auto: boolean }
+
+/**
+ * Picks the ONE English caption track to download from the info json's `subtitles` (made by people) and
+ * `automatic_captions` (speech recognition). Order: human English (en, en-US, en-GB, then any en-*), then the
+ * original automatic English (`en-orig`), and only then automatic `en`. For many videos automatic `en` is a
+ * machine translation of `en-orig` (same words), and YouTube rate-limits translations hard (HTTP 429), so
+ * asking for it alongside `en-orig` made whole downloads fail.
+ */
+export function chooseCaptionTrack(info: { subtitles?: Record<string, unknown> | null; automatic_captions?: Record<string, unknown> | null }): CaptionTrack | null {
+  const human = Object.keys(info.subtitles ?? {}).filter((k) => k !== 'live_chat')
+  for (const k of ['en', 'en-US', 'en-GB']) if (human.includes(k)) return { lang: k, auto: false }
+  const otherEn = human.filter((k) => /^en(-|$)/.test(k)).sort()[0]
+  if (otherEn) return { lang: otherEn, auto: false }
+  const auto = Object.keys(info.automatic_captions ?? {})
+  for (const k of ['en-orig', 'en', 'en-US']) if (auto.includes(k)) return { lang: k, auto: true }
+  return null
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+const TOO_MANY = /HTTP Error 429|Too Many Requests/i
+
+/**
+ * Downloads metadata and ONE English caption track (no video) into `dir`: first the info json, then just the
+ * best track (`chooseCaptionTrack`) from that saved info. A "429 Too Many Requests" is retried twice, after a
+ * short wait.
+ */
+export async function fetchCaptions(url: string, dir: string, binary: string, progress: ProgressFn): Promise<void> {
+  const out = join(dir, '%(id)s.%(ext)s')
+  const common = ['--skip-download', '--no-playlist', '--newline', '--extractor-args', 'youtube:player_client=tv,web,android', '-o', out]
+  await retry429(() => runYTDLP(binary, [...common, '--write-info-json', url], progress), progress)
+  const infoFile = readdirSync(dir).find((n) => n.endsWith('.info.json'))
+  if (!infoFile) throw new YTDLPError('yt-dlp did not write the video metadata.')
+  const infoPath = join(dir, infoFile)
+  const track = chooseCaptionTrack(JSON.parse(readFileSync(infoPath, 'utf8')))
+  if (!track) throw new FollowAlongError('This video has no English captions.')
+  progress(`Downloading ${track.auto ? 'automatic captions' : 'captions'} (${track.lang})…`)
+  const subArgs = [track.auto ? '--write-auto-subs' : '--write-subs', '--sub-lang', track.lang, '--sub-format', 'vtt']
+  await retry429(() => runYTDLP(binary, [...common, ...subArgs, '--load-info-json', infoPath], progress), progress)
+}
+
+async function retry429(run: () => Promise<void>, progress: ProgressFn): Promise<void> {
+  const waits = [5000, 15000]
+  for (let i = 0; ; i++) {
+    try { return await run() } catch (e) {
+      if (i >= waits.length || !(e instanceof Error) || !TOO_MANY.test(e.message)) {
+        if (e instanceof Error && TOO_MANY.test(e.message)) {
+          throw new YTDLPError(`YouTube is rate-limiting caption downloads right now (HTTP 429). Wait a few minutes and try again; "brew upgrade yt-dlp" can help too.\n\n${e.message}`)
+        }
+        throw e
+      }
+      progress(`YouTube said "too many requests"; trying again in ${waits[i] / 1000} s…`)
+      await sleep(waits[i])
+    }
+  }
+}
+
+function runYTDLP(binary: string, args: string[], progress: ProgressFn): Promise<void> {
+  // Homebrew and deno on PATH; plain Node inside Electron's helper environment too.
+  const env = toolEnv()
   return new Promise((resolve, reject) => {
     const p = spawn(binary, args, { env, stdio: ['ignore', 'pipe', 'pipe'] })
     let tail: string[] = []
@@ -72,11 +120,11 @@ export function fetchCaptions(url: string, dir: string, binary: string, progress
     }
     p.stdout.on('data', onData)
     p.stderr.on('data', onData)
-    p.on('error', (e) => reject(new FollowAlongError(`Could not run yt-dlp: ${e.message}`)))
+    p.on('error', (e) => reject(new YTDLPError(`Could not run yt-dlp: ${e.message}`)))
     p.on('close', (code) => {
       if (code === 0) return resolve()
       const errs = tail.filter((l) => l.includes('ERROR'))
-      reject(new FollowAlongError(`yt-dlp failed (exit ${code}).\n` + (errs.length ? errs.slice(-5) : tail.slice(-5)).join('\n')))
+      reject(new YTDLPError(`yt-dlp failed (exit ${code}).\n` + (errs.length ? errs.slice(-5) : tail.slice(-5)).join('\n')))
     })
   })
 }
@@ -245,16 +293,24 @@ export function headPart(md: string): string | null {
   return ls.slice(0, sep + 1).join('\n') + '\n'
 }
 
+/**
+ * Downloads a video's metadata and captions. Waits while yt-dlp is being updated. When yt-dlp fails and it is
+ * more than a week old, it is updated and the download is tried once more (`ytdlpUpdate.ts`).
+ */
 async function download(id: string, progress: ProgressFn): Promise<{ info: VideoInfo; vtt: string }> {
   const bin = findYTDLP()
   if (!bin) throw new FollowAlongError(YTDLP_MISSING)
+  return withSelfHeal(() => downloadOnce(id, bin, progress), () => healAfterFailure(bin, progress))
+}
+
+async function downloadOnce(id: string, bin: string, progress: ProgressFn): Promise<{ info: VideoInfo; vtt: string }> {
   const tmp = join(tmpdir(), `follow-along-${randomUUID().toUpperCase()}`)
   mkdirSync(tmp, { recursive: true })
   try {
     progress('Running yt-dlp…')
     await fetchCaptions(`https://www.youtube.com/watch?v=${id}`, tmp, bin, progress)
     const infoPath = join(tmp, `${id}.info.json`)
-    if (!existsSync(infoPath)) throw new FollowAlongError('yt-dlp did not write the video metadata.')
+    if (!existsSync(infoPath)) throw new YTDLPError('yt-dlp did not write the video metadata.')
     const info = parseInfoJSON(readFileSync(infoPath, 'utf8'))
     const vttPath = pickVTT(tmp, id)
     if (!vttPath) throw new FollowAlongError('This video has no English captions.')
