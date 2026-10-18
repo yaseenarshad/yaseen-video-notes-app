@@ -44,6 +44,8 @@ export function buildMenu(get: () => MainWindow | null): void {
     {
       label: 'View',
       submenu: [
+        { label: 'Reload Video', accelerator: 'CmdOrCtrl+R', click: w((m) => m.reloadActive()) },
+        { type: 'separator' },
         { label: 'Zoom In', accelerator: 'CmdOrCtrl+Plus', click: w((m) => m.zoom(1)) },
         { label: 'Zoom In', accelerator: 'CmdOrCtrl+=', visible: false, acceleratorWorksWhenHidden: true, click: w((m) => m.zoom(1)) },
         { label: 'Zoom Out', accelerator: 'CmdOrCtrl+-', click: w((m) => m.zoom(-1)) },

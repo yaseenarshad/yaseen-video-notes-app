@@ -128,6 +128,15 @@ export class PlayerSession {
     return n
   }
 
+  /** Reloads the player page when it seems stuck (View → Reload Video). It resumes at the saved spot. */
+  reload(): void {
+    if (this.closed) return
+    this.savePosition()
+    this.connected = false
+    DebugLog.log('reload video (menu)')
+    this.view.webContents.reload()
+  }
+
   /** Runs a page command (window.FA, see player.html). */
   run(js: string): void {
     if (this.closed) return

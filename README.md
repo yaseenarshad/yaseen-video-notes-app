@@ -60,6 +60,7 @@ instance add `--user-data-dir=<tmp dir> --mute --inactive`.
 | `⌘F` / `Ctrl+F` | find in transcript (on the New Tab page: the filter) |
 | `⌘+` / `⌘−` / `⌘0` | zoom the whole window (transcript text alone: A− / A+ buttons) |
 | `⌘T` / `⌘W` / `⌘1…9` | new tab / close tab / go to tab |
+| `⌘R` | reload the video (View → Reload Video) if it seems stuck; resumes at your spot |
 | `?` | shortcuts cheat-sheet |
 
 Hotkeys work while the video has focus too, and are ignored while typing in a note or the find box.

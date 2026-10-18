@@ -237,6 +237,12 @@ export class MainWindow {
 
   toggleFocus(): void { this.activeSession?.run('FA.toggleFocus()') }
 
+  /** View → Reload Video (⌘R): reloads the active video's page, which resumes at the saved spot; on a New Tab, reloads the shell. */
+  reloadActive(): void {
+    if (this.activeSession) this.activeSession.reload()
+    else this.shell.webContents.reload()
+  }
+
   // ---------- New Tab: open / create ----------
 
   /** Opens a video folder. A plain transcript from another tool is reformatted only after the user says yes. */
