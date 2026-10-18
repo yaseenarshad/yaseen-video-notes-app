@@ -231,8 +231,8 @@
   .nfilter button.on { background: var(--hl); color: var(--ink); border-color: var(--muted); font-weight: 600; }
   .nfilter .sep { width: 1px; background: var(--line); margin: 2px 3px; }
   .nfilter .cnt { font-variant-numeric: tabular-nums; opacity: .75; margin-left: 4px; }
-  .composer textarea { width: 100%; min-height: 54px; resize: vertical; font: inherit; color: var(--ink);
-    background: transparent; border: 0; outline: 0; }
+  .composer textarea { width: 100%; min-height: 54px; resize: none; overflow-y: hidden; font: inherit; color: var(--ink);
+    background: transparent; border: 0; outline: 0; display: block; }
   .composer .hint { font-size: 12px; color: var(--muted); }
 
   .selbtn { position: fixed; z-index: 5; font: 600 13px system-ui, sans-serif; padding: 5px 10px; border-radius: 999px;
@@ -936,6 +936,17 @@ function openComposer(sel, edit) {
   }
   composing = c; selActive = false; updateBack();
   ta.focus({ preventScroll: true });
+  // The box grows with the text (no drag handle); past half the window it scrolls inside instead.
+  const grow = () => {
+    ta.style.height = 'auto';
+    const max = Math.round(scroller.clientHeight * 0.5);
+    ta.style.height = Math.min(ta.scrollHeight, max) + 'px';
+    ta.style.overflowY = ta.scrollHeight > max ? 'auto' : 'hidden';
+    const b = c.getBoundingClientRect().bottom, sb = scroller.getBoundingClientRect().bottom - 20;
+    if (b > sb) scroller.scrollTop += b - sb;   // keep the line being typed on screen
+  };
+  ta.addEventListener('input', grow);
+  grow();
   const cr = c.getBoundingClientRect(), sr = scroller.getBoundingClientRect();
   if (cr.bottom > sr.bottom - 20 || cr.top < sr.top) keepInView(c, true);
   const close = () => { const box = c.parentElement; c.remove(); if (box && box.classList.contains('ncards') && !box.children.length) box.remove();
