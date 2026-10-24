@@ -38,7 +38,7 @@
   function unitAt(t) { var i = 0; for (var k = 0; k < units.length; k++) if (units[k].start <= t + 0.01) i = k; return i; }
   function go(i) {
     var u = units[i];
-    S.i = i; S.end = Math.min(u.end, u.start + len); S.seekedAt = performance.now();
+    S.i = i; S.end = Math.min(u.end, u.start + len); S.seekedAt = performance.now(); S.lastT = null;
     L.video.seek(u.start + 0.3, { play: true, follow: true });
     render();
   }
@@ -70,6 +70,7 @@
     if (!units.length) return L.ui.toast('Nothing to sample', 1500);
     var t = L.video.time(), i = unitAt(t);
     if (t - units[i].start > 5) i = (i + 1) % units.length;   // mid-chapter: start with the next one
+    L.mode.enter('sample', function () { stop(); });   // one mode at a time: ends the reel / Read mode
     S = { before: { t: t, paused: L.video.paused() } };
     S.offKeys = L.ui.keyMode(function (k) {
       if (k === 'arrowright') { next(); return true; }
@@ -85,7 +86,7 @@
   }
   function stop(msg) {
     if (!S) return;
-    S.offKeys(); S = null; render();
+    S.offKeys(); S = null; render(); L.mode.exit('sample');
     if (msg) L.ui.toast(msg, 2200);
   }
   function next() {
@@ -108,8 +109,11 @@
   L.video.onTick(function (st) {
     if (!S) return;
     render();
+    // pushed forward inside this chapter (e.g. sponsor-skip jumped over a sponsor read at its start): sample from there
+    var u = units[S.i], jumped = !st.paused && S.lastT != null && st.t - S.lastT > 6 && st.t > u.start && st.t < u.end - 5;
+    S.lastT = st.t;
+    if (jumped) { S.end = Math.min(u.end, st.t + len); S.seekedAt = performance.now(); return; }
     if (st.paused || performance.now() - S.seekedAt < 2500) return;
-    var u = units[S.i];
     if (st.t < u.start - 3) return stop('Sampling stopped (you moved)');
     if (st.t > S.end + 4) {   // pushed forward: by another experiment (e.g. a sponsor skip) → next; far away → you moved
       var nx = units[S.i + 1];

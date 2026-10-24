@@ -128,6 +128,17 @@
     L.log('smart-speed: ' + (cfg.on ? 'on' : 'off'));
   }
   L.ui.addKey('a', toggle, 'Smart speed on / off');
+  // the highlight reel and the chapter sampler play at your speed: smart speed gives it back and waits until they end
+  function inMode() { var m = L.mode.current(); return m === 'reel' || m === 'sample'; }
+  L.mode.onChange(function () {
+    if (!cfg.on) return;
+    if (inMode()) {
+      stopRamp();
+      if (applied !== null && Math.abs(L.video.speed() - applied) < 0.001) L.video.setRate(listen());
+      applied = null; cfg.lastApplied = null;
+    }
+    kick(); show();
+  });
 
   var lastWhy = '';
   function show(extra) {
@@ -149,6 +160,7 @@
       L.log('smart-speed: manual change to ' + sp + ', paused 30 s');
     }
     if (now < manualUntil) return show('Smart paused · ' + Math.ceil((manualUntil - now) / 1000) + ' s');
+    if (inMode()) return show('Smart paused · ' + (L.mode.current() === 'reel' ? 'reel' : 'sampling'));
     if (manualUntil) { manualUntil = 0; kick(); }
     lastWhy = why(st.para);
     show();

@@ -155,6 +155,7 @@
           el('button', { onclick: closeRead, title: 'Esc' }, ['✕ Close'])]),
         page,
       ]);
+      L.mode.enter('read', closeRead);   // one mode at a time: ends the reel / the sampler
       document.body.appendChild(reading);
       document.body.classList.add('pq-reading');
       reading.focus();
@@ -162,7 +163,7 @@
     });
   }
   function play(q) { closeRead(); L.video.seek(q.t0, { play: true }); L.ui.toast('Playing from ' + fmt(q.t0), 1800); }
-  function closeRead() { if (!reading) return; reading.remove(); reading = null; document.body.classList.remove('pq-reading'); }
+  function closeRead() { if (!reading) return; reading.remove(); reading = null; document.body.classList.remove('pq-reading'); L.mode.exit('read'); }
   function setKb(i) {
     if (!bigs.length) return;
     kb = Math.max(0, Math.min(bigs.length - 1, i));

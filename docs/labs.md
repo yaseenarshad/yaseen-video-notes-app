@@ -407,3 +407,24 @@ computed from verbatim phrases by a helper, so no anchor repairs were needed. Si
 | OpenAI Bulk-Solves 722 Math Problems… | A5YVqEpbgaU | 18 | 29 | 0 | none · 6 |
 | Charlie Munger's Final Interview (labs-library) | H5Oom5Rjp_Y | 20 | 53 | 2 (pull-quote chapter regrouped / dropped) | heatmap 100 points · 0 |
 | Anthropic Rebuilt Git (labs-library) | hiI0Vk4NgeY | 17 | 21 | 2 (pull-quote chapter regrouped / dropped) | none · 1 |
+
+## Additions (integration pass)
+
+One shared flag in `src/labs/page/api.js` (marked `// added by labs-integration`), so the experiments that take over
+the player never run at the same time:
+
+```
+LABS.mode
+  enter(name, endFn)   start a mode; the mode that is on is ended first (its endFn is called: stop quietly, no seek)
+  exit(name)           the mode ended by itself       current() → 'reel' | 'sample' | 'read' | null
+  onChange(fn(name | null)) → off
+```
+
+| mode | who | while it is on |
+|---|---|---|
+| `reel` | highlight-reel | smart-speed gives your speed back and waits; sponsor-skip and dense-mode's "skip hidden" stand still |
+| `sample` | chapter-sampler | smart-speed waits; dense-mode's "skip hidden" stands still; sponsor-skip still skips (the sampler then samples from where it landed) |
+| `read` | pull-quotes Read mode | (an overlay; the video is not driven) |
+
+Starting one ends the other: E (or a board ▶ Reel / `#labs=reel`) during sampling or Read mode, ⇧C during Read mode,
+⇧P during sampling. Inside the reel and Read mode their own key handlers keep the other Labs keys out.

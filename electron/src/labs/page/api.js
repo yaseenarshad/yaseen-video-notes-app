@@ -216,6 +216,27 @@
       return function () { window.removeEventListener('keydown', h, true); };
     }
 
+    // ---------- added by labs-integration: one mode at a time ----------
+    // A "mode" takes over the player for a while: 'reel' (highlight-reel), 'sample' (chapter-sampler), 'read'
+    // (pull-quotes Read mode). enter(name, endFn) first ends the mode that is on (calls its endFn, which must stop it
+    // quietly, without seeking); exit(name) when a mode ends by itself; current() → name | null; onChange(fn(name|null)).
+    // Background helpers stand still while a mode plays the video: smart-speed (reel, sample), dense-mode's
+    // skip-while-playing (reel, sample), sponsor-skip (reel).
+    var modeCur = null, modeEnd = null, modeFns = [];
+    function modeNotify() { modeFns.forEach(function (f) { try { f(modeCur); } catch (e) {} }); }
+    var mode = {
+      enter: function (name, endFn) {
+        if (modeCur && modeCur !== name) {
+          var f = modeEnd; modeCur = null; modeEnd = null;
+          try { if (f) f(name); } catch (e) { LABS.log('mode end error', String(e)); }
+        }
+        modeCur = name; modeEnd = endFn || null; modeNotify();
+      },
+      exit: function (name) { if (modeCur !== name) return; modeCur = null; modeEnd = null; modeNotify(); },
+      current: function () { return modeCur; },
+      onChange: function (fn) { modeFns.push(fn); return function () { modeFns = modeFns.filter(function (f) { return f !== fn; }); }; },
+    };
+
     function store(id) {
       var base = '/labs/state/' + encodeURIComponent(id);
       return {
@@ -266,6 +287,7 @@
         onChange: function (fn) { var h = function () { fn(LABS.launch.flags()); }; window.addEventListener('hashchange', h); return function () { window.removeEventListener('hashchange', h); }; },
         clear: function () { history.replaceState(null, '', location.pathname + location.search); },
       },
+      mode: mode,
     };
     return LABS;
   }

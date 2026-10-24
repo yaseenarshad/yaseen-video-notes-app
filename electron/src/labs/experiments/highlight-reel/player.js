@@ -156,6 +156,7 @@
         for (var k = 0; k < list.length; k++) if (list[k].t1 > now + 2) { i = k; break; }
         if (list[list.length - 1].t1 <= now + 2) i = 0;
       }
+      L.mode.enter('reel', function () { close('quiet'); });   // one mode at a time: ends the sampler / Read mode
       R = { list: list, i: -1, before: { t: now, paused: L.video.paused() }, playMs: 0, lastTick: 0, seekAt: 0, seen: {}, prog: {}, reseeked: false,
             summary: false, lastF: -1, wheel: 0, wheelLock: false, wheelTimer: null };
       build();
@@ -174,10 +175,12 @@
     var r = R;
     clearInterval(r.timer);
     R = null;
+    L.mode.exit('reel');
     document.body.classList.remove('hr-on', 'hr-sum', 'hr-paused');
     if (box) box.remove();
     box = null;
-    if (how === 'back') {
+    if (how === 'quiet') {   // ended by another mode (LABS.mode): leave the video to it
+    } else if (how === 'back') {
       L.video.seek(r.before.t + 0.3, { play: !r.before.paused });
       L.ui.toast('Back at ' + fmt(r.before.t) + ' (where you were before the reel)', 2500);
     } else if (how === 'jump') {

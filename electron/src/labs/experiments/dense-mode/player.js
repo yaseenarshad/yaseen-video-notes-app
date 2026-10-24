@@ -144,7 +144,8 @@
     }
     if (here >= 0) {
       paint(r);
-      if (S.skip && !s.paused && r.t1 - r.t0 >= MIN_SKIP && performance.now() - lastSkipAt > 1500) {
+      var m = L.mode.current();   // never skip while the reel or the sampler plays the video
+      if (S.skip && !s.paused && m !== 'reel' && m !== 'sample' && r.t1 - r.t0 >= MIN_SKIP && performance.now() - lastSkipAt > 1500) {
         var to = r.b + 1 < T.paragraphs.length ? T.paragraphs[r.b + 1].start : null;
         if (to === null) return;
         var from = s.t;

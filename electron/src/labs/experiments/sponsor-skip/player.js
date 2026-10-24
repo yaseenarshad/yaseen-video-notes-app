@@ -98,7 +98,7 @@
   }
 
   L.video.onTick(function (st) {
-    if (st.paused || !segs.length) return;
+    if (st.paused || !segs.length || L.mode.current() === 'reel') return;   // the reel plays only the AI highlights
     for (var i = 0; i < segs.length; i++) {
       var s = segs[i];
       if (!on[s.category] || allowed[s.i]) continue;
