@@ -186,6 +186,15 @@
       analysis: analysis,
       ui: ui,
       store: store,
+      // added by triage-cards: the launch flag(s) the video was opened with — `#labs=reel` (comma-separated, e.g.
+      // `#labs=reel,x`) when the Triage board card / queue opens it straight into the highlight reel. flags() → ['reel'];
+      // has('reel'); onChange(fn(flags)) also fires when an already open video is re-launched (hashchange); clear().
+      launch: {
+        flags: function () { var m = /(?:^#|&)labs=([a-z0-9,-]+)/.exec(location.hash); return m ? m[1].split(',').filter(Boolean) : []; },
+        has: function (f) { return LABS.launch.flags().indexOf(f) >= 0; },
+        onChange: function (fn) { var h = function () { fn(LABS.launch.flags()); }; window.addEventListener('hashchange', h); return function () { window.removeEventListener('hashchange', h); }; },
+        clear: function () { history.replaceState(null, '', location.pathname + location.search); },
+      },
     };
     return LABS;
   }

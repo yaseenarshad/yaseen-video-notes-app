@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import { Component, useEffect, useState, type ComponentType, type ReactNode } from 'react'
 import type { ExperimentArea } from '../labs/registry'
-import type { FolderEntry, LabsInfo, Source } from '../shared/api'
+import type { FeedItem, FolderEntry, LabsInfo, Source } from '../shared/api'
 
 /**
  * 🧪 Labs in the shell (renderer). Inert in the normal app: `labsInfo()` is null there, so nothing renders.
@@ -11,7 +11,7 @@ import type { FolderEntry, LabsInfo, Source } from '../shared/api'
  * - `<LabsSlot area=… />`: THE hook point for New Tab / board experiments. It renders, for every enabled experiment
  *   of that area, the default export of `src/labs/experiments/<id>/renderer.tsx` (collected at build time).
  *   Areas: 'newtab' (above the list of a New Tab; props: tabId, rows, source) and 'board' (inside each board card;
- *   props: row).
+ *   props: row); 'feed' (inside each 📺 Feed row; props: feedItem — added by feed-triage).
  */
 export interface LabsSlotProps {
   area: Exclude<ExperimentArea, 'player'>
@@ -21,6 +21,8 @@ export interface LabsSlotProps {
   /** The rows the New Tab shows ('newtab'). */
   rows?: FolderEntry[]
   source?: Source | null
+  /** The 📺 Feed row's video ('feed'). */ // added by feed-triage
+  feedItem?: FeedItem
   labs: LabsInfo
 }
 
@@ -70,7 +72,7 @@ export function LabsSlot(props: Omit<LabsSlotProps, 'labs'>) {
   return <>{on.map((e) => { const C = COMPONENTS[e.id]; return <Guard key={e.id} id={e.id}><C {...props} labs={labs} /></Guard> })}</>
 }
 
-const AREA: Record<ExperimentArea, string> = { player: 'Player', newtab: 'New Tab', board: 'Board' }
+const AREA: Record<ExperimentArea, string> = { player: 'Player', newtab: 'New Tab', board: 'Board', feed: 'Feed' } // feed: added by feed-triage
 
 /** The 🧪 Labs page. */
 export function LabsPanel() {

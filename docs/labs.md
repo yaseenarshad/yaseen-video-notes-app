@@ -291,3 +291,63 @@ In the app: **🧪 Analyze** under the video (or Labs → Analyze This Video); t
   `Page.captureScreenshot` works while the window is behind others).
 - The debug log shows every skipped write (`read-only (labs): skipped …`), `labs: <id> on/off`, `analyze <id>: …`.
 - After a test: `git -C ~/Documents/GitHub/yaseen-docs-vault status` must be clean.
+
+## Additions (Agent C)
+
+Three shell experiments (triage), six more analyses, and three small shared hooks — each shared edit is commented
+`// added by <id>` in the code.
+
+### The Labs launch flag: `#labs=<flag>` (added by triage-cards)
+
+A shell experiment can open a video so that its player experiments know *why* it was opened:
+
+```ts
+const s = await window.fa.state()
+window.fa.openFolder(s.active!, folder, 'labs=reel')   // 3rd argument: the hash, Labs only
+```
+
+- The player page loads at `http://localhost:<port>/#labs=reel` (several flags: `#labs=reel,x`). Only `labs=[a-z0-9,-]`
+  passes (`window.ts` `launcher:open`), and only in Labs; the normal app ignores it.
+- When that video is **already open**, its tab is shown and the hash is set again (`history.replaceState` + `location.hash`),
+  so the page gets a `hashchange` — read it with `LABS.launch.onChange`.
+- ⌘R (Reload Video) reloads without the hash.
+- Page API (`api.js`): `LABS.launch.flags()` → `['reel']` · `.has('reel')` · `.onChange(fn(flags))` → off · `.clear()`.
+- **`reel`** = "open straight into the highlight reel": sent by the triage-cards ▶ Reel button and the Triage queue's `→`.
+  A highlight-reel player experiment should check `LABS.launch.has('reel')` once at start (after `LABS.analysis.get()`)
+  and in `LABS.launch.onChange`.
+- Plumbing: `shared/api.ts` + `preload/shell.ts` (`openFolder(tabId, path, hash?)`), `main/window.ts` (`openFolder` →
+  `runWork` → `openPlayer(t, replacing, hash)`), `main/session.ts` (`SessionOptions.hash` → `loadURL(pageURL + '#' + hash)`).
+
+### A fourth slot area: `'feed'` (added by feed-triage)
+
+`area: 'feed'` renders `renderer.tsx` inside every 📺 Feed row (under its channel / date line), with the prop
+`feedItem: FeedItem` (`<LabsSlot area="feed" feedItem={i} />` in `renderer/Feed.tsx`). Edits: `ExperimentArea` in
+`labs/experiment.ts`, the allowed areas in `registryProblems()`, `LabsSlotProps.feedItem` + the panel's area name in
+`renderer/labs.tsx`.
+
+### The experiments
+
+| id | area | what |
+|---|---|---|
+| `triage-cards` | board | analyzed cards: "🎬 18 highlights · 21 min", signal % (paragraphs scored 2–3), top 2 pull quotes verbatim (2 lines, click to expand), ▶ Reel (`#labs=reel`) |
+| `triage-queue` | newtab | 🎯 Triage bar ("12 to triage") → one-at-a-time queue of un-started videos (Backlog / Todo / none; optional "+ barely started" = In progress < 10 %): pull quotes, or chapter openings when not analyzed. Keys → reel · ↓ skip · D done · ⏎ open · ↑ back · Esc. Labs-local state in `labs-state.json` → `triage-queue` |
+| `feed-triage` | feed | "Preview pull quotes" per Feed video, on click only: captions → `labs-cache/<id>/feed-preview.follow-along.json`, chapter titles + first sentences verbatim (no AI) at once, AI pull quotes when `claude -p` works |
+
+Each folder has a `GUIDE.md` (what it does, how to try it, what to judge, known limits). The shared logic is
+`experiments/triage-cards/digest.ts` (+ `digest.test.ts`): ranked verbatim pull quotes, highlight minutes, signal %,
+chapter openings (the non-AI fallback). triage-queue and feed-triage import it.
+
+### More analyses (Labs userData, `labs-cache/<id>/labs-analysis.json`)
+
+`claude -p` was logged out, so the answers were written by Claude Code sub-agents from the exact prompt
+(`analyze --prompt-out`) and run through the real validator (`analyze --response`); the spans' word numbers were
+computed from verbatim phrases by a helper, so no anchor repairs were needed. Signals were fetched by the same run.
+
+| video | id | highlights | pull quotes | repairs | signals |
+|---|---|---|---|---|---|
+| Zuckerberg's $100 Billion Bet | XfdIhd1g6EI | 19 | 23 | 5 (questions > 120 words dropped) | heatmap none · SponsorBlock 5 |
+| CoreWeave Crash… | _b3LfMflIGs | 18 | 11 | 1 (a flashcard > 90 words dropped) | none · 1 |
+| The Frontier Ideas a16z… | -9XQMHhpypc | 17 | 21 | 2 (flashcards > 90 words dropped) | none · 0 |
+| OpenAI Bulk-Solves 722 Math Problems… | A5YVqEpbgaU | 18 | 29 | 0 | none · 6 |
+| Charlie Munger's Final Interview (labs-library) | H5Oom5Rjp_Y | 20 | 53 | 2 (pull-quote chapter regrouped / dropped) | heatmap 100 points · 0 |
+| Anthropic Rebuilt Git (labs-library) | hiI0Vk4NgeY | 17 | 21 | 2 (pull-quote chapter regrouped / dropped) | none · 1 |

@@ -127,16 +127,17 @@ export class MainWindow {
   }
 
   /** Opens a video in a tab (in place of `replacing`, a New Tab), or shows its tab if it is open. */
-  async openPlayer(t: TranscriptFolder, replacing: string | null = null): Promise<void> {
+  async openPlayer(t: TranscriptFolder, replacing: string | null = null, hash?: string): Promise<void> {
     const open = this.tabs.find((x) => x.session && x.session.transcript.folder === t.folder)
     if (open) {
+      if (hash) open.session!.run(`history.replaceState(null, '', location.pathname), location.hash = ${JSON.stringify(hash)}`) // added by triage-cards: Labs launch flag for an open video (hashchange)
       if (replacing && replacing !== open.id) this.close(replacing, true)
       this.select(open.id)
       return
     }
     try {
       const s = await PlayerSession.open(t, {
-        preload: join(this.opts.preloadDir, 'player.js'), zoom: Settings.uiScale, muted: this.opts.muted,
+        preload: join(this.opts.preloadDir, 'player.js'), zoom: Settings.uiScale, muted: this.opts.muted, hash, // hash: added by triage-cards
       })
       if (this.closing) { s.close(); return }
       const tab: Tab = { id: randomUUID(), kind: 'player', title: s.sidecar.title, session: s }
@@ -266,8 +267,8 @@ export class MainWindow {
   // ---------- New Tab: open / create ----------
 
   /** Opens a video folder. A plain transcript from another tool is reformatted only after the user says yes. */
-  async openFolder(tabId: string, path: string, allowFormat = false): Promise<void> {
-    await this.runWork(tabId, (progress) => ensure(path, { allowFormat, progress }))
+  async openFolder(tabId: string, path: string, allowFormat = false, hash?: string): Promise<void> {
+    await this.runWork(tabId, (progress) => ensure(path, { allowFormat, progress }), hash) // hash: added by triage-cards
   }
 
   async create(tabId: string, link: string, destination: string): Promise<void> {
@@ -295,12 +296,12 @@ export class MainWindow {
 
   private dialogParent(): BaseWindow { return this.win }
 
-  private async runWork(tabId: string, work: (p: (l: string) => void) => Promise<TranscriptFolder>): Promise<void> {
+  private async runWork(tabId: string, work: (p: (l: string) => void) => Promise<TranscriptFolder>, hash?: string): Promise<void> { // hash: added by triage-cards
     this.work({ tabId, step: 'working' })
     try {
       const t = await work((line) => { DebugLog.log(`prepare: ${line}`); this.work({ tabId, step: 'working', line }) })
       this.work({ tabId, step: 'browse' })
-      await this.openPlayer(t, this.tabs.some((x) => x.id === tabId) ? tabId : null)
+      await this.openPlayer(t, this.tabs.some((x) => x.id === tabId) ? tabId : null, hash)
     } catch (e) {
       if (e instanceof NeedsFormatting) {
         this.work({ tabId, step: 'browse' })
@@ -387,7 +388,9 @@ export function registerIPC(get: () => MainWindow | null): void {
     Settings.pinnedFolders = Settings.pinnedFolders.filter((p) => p !== path)
     return launcherInfo()
   })
-  ipcMain.on('launcher:open', (_e, tabId: string, path: string) => void w()?.openFolder(tabId, path))
+  // hash: added by triage-cards — a Labs launch flag for player experiments ("labs=reel"); Labs only, nothing else passes
+  ipcMain.on('launcher:open', (_e, tabId: string, path: string, hash?: unknown) =>
+    void w()?.openFolder(tabId, path, false, isLabs() && typeof hash === 'string' && /^labs=[a-z0-9,-]{1,60}$/.test(hash) ? hash : undefined))
   ipcMain.on('launcher:openExisting', (_e, tabId: string, startAt?: string) => void w()?.openExisting(tabId, startAt))
   ipcMain.on('launcher:create', (_e, tabId: string, link: string, dest: string) => void w()?.create(tabId, link, dest))
   ipcMain.handle('launcher:setStatus', (_e, folder: string, value: string) => {

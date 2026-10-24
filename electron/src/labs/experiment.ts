@@ -2,7 +2,7 @@
  * The shape of a Labs experiment's registry entry (`src/labs/experiments/<id>/meta.ts`). Kept apart from
  * registry.ts so the meta files can import it without a circular import (registry.ts imports every meta file).
  */
-export type ExperimentArea = 'player' | 'newtab' | 'board'
+export type ExperimentArea = 'player' | 'newtab' | 'board' | 'feed' // 'feed': added by feed-triage (inside each 📺 Feed row)
 
 export interface ExperimentMeta {
   /** Kebab-case, the same as its folder name. */

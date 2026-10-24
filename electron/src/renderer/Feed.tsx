@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type MouseEvent } from 'react'
 import { relativeDate } from '../core/feed'
 import type { FeedItem, FeedState } from '../shared/api'
+import { LabsSlot } from './labs' // added by feed-triage
 
 const name = (p: string): string => p.split('/').filter(Boolean).pop() ?? p
 /** "/Users/x/Documents/…" → "~/Documents/…" (for display). */
@@ -144,6 +145,7 @@ export function FeedView({ feed, tabId, destination, onOpenFolder }: {
                   <span> · </span><span title={new Date(i.published).toLocaleString()}>{relativeDate(i.published)}</span>
                   {i.duration && <><span> · </span><span>{i.duration}</span></>}
                 </div>
+                <LabsSlot area="feed" feedItem={i} />{/* added by feed-triage */}
               </div>
               <div className="feedrow__actions">
                 {i.folder

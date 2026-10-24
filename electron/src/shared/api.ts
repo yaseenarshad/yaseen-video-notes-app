@@ -89,7 +89,8 @@ export interface FaAPI {
   list(source: Source): Promise<FolderEntry[]>
   addFolder(startAt?: string): Promise<string | null>
   removeFolder(path: string): Promise<LauncherInfo>
-  openFolder(tabId: string, path: string): void
+  /** `hash` (Labs only, e.g. "labs=reel"): opens the player page at `#<hash>` for player experiments. */ // added by triage-cards
+  openFolder(tabId: string, path: string, hash?: string): void
   openExisting(tabId: string, startAt?: string): void
   create(tabId: string, link: string, destination: string): void
   setStatus(folder: string, value: string): Promise<string | null>

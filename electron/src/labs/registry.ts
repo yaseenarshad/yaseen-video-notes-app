@@ -41,7 +41,7 @@ export function registryProblems(): string[] {
     if (seen.has(e.id)) out.push(`${where}: duplicate id`)
     seen.add(e.id)
     for (const k of ['title', 'description', 'howTo'] as const) if (typeof e[k] !== 'string' || !e[k].trim()) out.push(`${where}: ${k} missing`)
-    if (!['player', 'newtab', 'board'].includes(e.area)) out.push(`${where}: area must be player | newtab | board`)
+    if (!['player', 'newtab', 'board', 'feed'].includes(e.area)) out.push(`${where}: area must be player | newtab | board | feed`) // 'feed': added by feed-triage
     if (typeof e.defaultOn !== 'boolean') out.push(`${where}: defaultOn must be true or false`)
   }
   return out
