@@ -5,7 +5,7 @@ import { homeTracker } from '../core/home'
 import { addNote, changeFile, deleteNote, editNote, NoteChanged, noteJSON, parse as parseNotes, releaseClaimAt, setCategory, setResolved, type Note, type NoteCategory } from '../core/notes'
 import { LockTimeout } from '../core/fileLock'
 import { noteAnchor } from '../core/noteAnchor'
-import { advanceStatus } from '../core/status'
+import { advanceOnOpen } from '../core/status'
 import { decodeSidecar, type Sidecar } from '../core/transcript'
 import type { TranscriptFolder } from '../core/folderMaker'
 import { DebugLog } from './debugLog'
@@ -40,7 +40,6 @@ export class PlayerSession {
   private server: LocalServer
   private notesCache: { mtime: number; size: number; minute: number; json: string } | null = null
   private lastPos: { t: number; dur: number; home: number | null } | null = null
-  private markedWatched = false
   private written: { t: number; at: number } | null = null
   private scan: NodeJS.Timeout | null = null
   private connected = false
@@ -104,8 +103,8 @@ export class PlayerSession {
     const s = new PlayerSession(t, opts)
     const port = await s.server.start()
     DebugLog.log(`server http://127.0.0.1:${port}/ for ${t.markdown}`)
-    // Status moves forward only: opening a video makes it "watching" (option 2).
-    setImmediate(() => advanceStatus(t.folder, t.markdown, 1, DebugLog.log))
+    // Opening a video moves an empty / Backlog / Todo status to In progress (finishing never changes it; Done is manual).
+    setImmediate(() => advanceOnOpen(t.folder, t.markdown, DebugLog.log))
     void s.view.webContents.loadURL(s.pageURL)
     return s
   }
@@ -320,11 +319,6 @@ export class PlayerSession {
       const home = typeof m.home === 'number' && Number.isFinite(m.home) ? m.home : (this.lastPos?.home ?? null)
       this.lastPos = { t: m.t, dur: dur > 0 ? dur : this.sidecar.duration, home }
       if (type === 'pos') this.savePosition(m.playing === true)
-      const p = this.lastPos
-      if (!this.markedWatched && p.dur > 0 && p.t >= p.dur - Math.max(30, p.dur * 0.02)) {
-        this.markedWatched = true // finished (the resume rule): "watched" (option 3)
-        setImmediate(() => advanceStatus(this.transcript.folder, this.transcript.markdown, 2, DebugLog.log))
-      }
     }
     if (DebugLog.on) DebugLog.log('page ' + JSON.stringify(sortKeys(m)))
   }

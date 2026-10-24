@@ -26,6 +26,7 @@ npm run typecheck
 npm run package                               # → electron/dist/Yaseen Video Notes.app (bundle id com.yaseen.videonotes, signed)
 npm run install-app                           # package + quit the running app + replace /Applications/Yaseen Video Notes.app + open it
 npm run cli -- --make <url> --out <dir>       # headless folder creation (plain Node; needs `npm run build` first)
+npm run cli -- migrate-status <folder> --dry-run   # old statuses → docs-app defaults (drop --dry-run to write)
 npm run cli -- status <md> --text             # the agents' CLI (claim / resolve / release / status) as plain Node
 VIDEO_NOTES_APP="$PWD/dist/Yaseen Video Notes.app" build/video-notes status <md>   # the video-notes shim against a dist build
 "dist/Yaseen Video Notes.app/Contents/MacOS/Yaseen Video Notes" --make <url> --out <dir>      # same CLI from the packaged app
@@ -72,7 +73,9 @@ Do not commit unless asked.
     link; code blocks and comments skipped), `feed-hidden.json`, the yt-dlp Videos-tab listing, Videos-tab page and RSS
     parsing, the Shorts decision, merge / sort / hide / In-Library / badge; `feedFetch.ts` — its network side
     (resolve a channel, list a channel: yt-dlp → Videos tab page → RSS); `feedFixtures.ts` — real saved output for the tests
-  - `status.ts` — per-video status in the yaseen-docs-app format; `progress.ts` — the resume file (`seconds` + optional
+  - `status.ts` — per-video status in the yaseen-docs-app format (+ old-value mapping, `migrateStatus`);
+    `statusMigrate.ts` — the `migrate-status` folder run; `progress.ts` — the resume file
+  - `board.ts` — Kanban board order logic (pure, used by the renderer too); `boardFile.ts` — `.video-notes-board.json` (`seconds` + optional
     `home`; resume at home, New Tab progress from the furthest of the two)
   - `home.ts` — 📍 home (main spot) + back / forward history logic; self-contained, served as `/home.js` via
     `toString()` like `noteAnchor.ts` (no imports or outside helpers)
@@ -88,7 +91,9 @@ Do not commit unless asked.
   - `player.html` — the whole player page (HTML/CSS/JS, served by the session's server)
   - `injected.js` — JS injected into the YouTube iframe (rate, seek, status, keys)
 - `preload/` — `shell.ts` (window.fa, typed IPC) and `player.ts` (window.faNative.post)
-- `renderer/` — the shell: `TabBar.tsx` (the yaseen-docs-app tab bar look), `NewTab.tsx` (Finder-style New Tab page),
+- `renderer/` — the shell: `TabBar.tsx` (the yaseen-docs-app tab bar look), `NewTab.tsx` (Finder-style New Tab page,
+  Board | Table toggle; Board is the default, Table is not saved), `Board.tsx` (the Kanban board: columns,
+  collapsible to strips (`collapsedColumns` setting), cards with thumbnails, drag and drop),
   `Feed.tsx` (the 📺 Feed view, typed-confirm Unfollow… dialog)
 - `cli/` — the CLI (`run.ts`, used by both the app binary and `cli.js`; `agent.ts` = `claim | resolve | release | status`)
 - `build/video-notes` — the `video-notes` shim (installed by install-app)
@@ -138,9 +143,14 @@ Do not commit unless asked.
    across computers) and is written rarely (pause, seek, tab switch, close, quit; at most once a minute while
    playing; not if it moved < 5 s) to keep git quiet.
 7. **Status format is shared with yaseen-docs-app — do not change it.** Column in the parent folder's `.folder.md`
-   (`folder_settings.columns.status`, kind select, options `1-To-Watch…4-Carded`, `optionSort: manual`), value in
-   the transcript's frontmatter at `in.<parent folder id>.status` (top-level `status` when the folder has no id).
-   Only add the column when missing; minimal line edits; never touch other keys.
+   (`folder_settings.columns.status`, kind select, options `1-Backlog, 2-Todo, 3-In-Progress, 4-Done` — the docs
+   app's own defaults — `optionSort: manual`), value in the transcript's frontmatter at `in.<parent folder id>.status`
+   (top-level `status` when the folder has no id). Only add the column when missing; minimal line edits under the
+   file's lock; never touch other keys. The old app-written options `1-To-Watch…4-Carded` are read as the new ones
+   everywhere (`1-To-Watch`→`2-Todo`, `2-Watching`/`3-Watched`→`3-In-Progress`, `4-Carded`→`4-Done`); an exactly-old
+   option list is replaced when the app writes `.folder.md`; `video-notes migrate-status <folder> [--dry-run]`
+   rewrites old values. Opening a video moves empty/Backlog/Todo → In progress; nothing else changes it by itself
+   (Done is manual). The board's manual order is `<parent>/.video-notes-board.json` (`core/board.ts`, `boardFile.ts`).
 8. **Don't change file formats casually.** The vault already holds folders made by the old Swift version and by
    this app; the unit tests pin the exact bytes. Any format change must keep reading the existing files.
 9. **Never write test output into `/Users/yasin/Documents/GitHub/yaseen-docs-vault`.** Test with a temp folder

@@ -1,5 +1,5 @@
 #!/bin/sh
-# video-notes: the Yaseen Video Notes agent CLI (claim / resolve / release / status) without the app's window.
+# video-notes: the Yaseen Video Notes agent CLI (claim / resolve / release / status, and migrate-status) without the app's window.
 # It runs the app's bundled cli.js with the app's own Electron as plain Node (ELECTRON_RUN_AS_NODE=1): fast,
 # no dock icon, no second app instance. Every write takes the transcript's lock (<md>.lock), so several
 # agents and the app can change one .md at the same time. `video-notes --help` for usage.

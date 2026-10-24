@@ -11,7 +11,7 @@ import { healAfterFailure, toolEnv, withSelfHeal } from './ytdlpUpdate'
 import * as Notes from './notes'
 import { fraction, finished, furthest, readProgress, type Progress } from './progress'
 import { trimWS } from './text'
-import { DEFAULT_OPTIONS, parentInfo, value as statusValue } from './status'
+import { effectiveOptions, mapStatus, parentInfo, value as statusValue } from './status'
 import { ensureGuide, withoutComments } from './guide'
 import {
   body, decodeSidecar, encodeSidecar, folderName, header, makeSidecar, markdown, paragraphs, parseInfoJSON, parseYouTubeID, slug,
@@ -347,8 +347,30 @@ export interface FolderEntry {
   finished: boolean
   fraction: number
   notes: number
+  /** Open (not #resolved) #mochi notes. */
+  mochiOpen: number
+  /** The YouTube id (from the .md's "- url:" line, else the sidecar's), or null. */
+  videoId: string | null
+  /** The channel from the .md's header list ("- channel: …"), or null. */
+  channel: string | null
+  /** As the app shows it: an old value (`2-Watching`…) reads as its new one (`3-In-Progress`…). */
   status: string | null
+  /** The parent folder's options (an old app-written list reads as the new defaults). */
   statusOptions: string[]
+}
+
+/** The channel from a transcript's header list: "- channel: X" (also "* channel:", "* **Channel:** X"). */
+export function channelInMarkdown(md: string): string | null {
+  const ls = md.split('\n')
+  const title = ls.findIndex((l) => l.startsWith('# '))
+  if (title < 0) return null
+  for (let i = title + 1; i < Math.min(ls.length, title + 40); i++) {
+    const l = ls[i]
+    if (trimWS(l) === '---' || trimWS(l) === '***' || /^\[\d+:\d\d/.test(l)) break
+    const m = /^\s*[-*]\s+(?:\*\*)?channel:?(?:\*\*)?:?\s*(.+)$/i.exec(l)
+    if (m) return trimWS(m[1]) || null
+  }
+  return null
 }
 
 export function folderDate(datePrefix: string | null, modified: number, now: Date = new Date()): number {
@@ -373,7 +395,11 @@ export function entry(d: string): FolderEntry | null {
   let modified = 0
   try { modified = statSync(md).mtimeMs } catch { /* 0 */ }
   const parent = parentInfo(d).info
+  const options = effectiveOptions(parent.options)
   const progress = readProgress(d)
+  const notes = formatted ? Notes.parse(text) : []
+  let videoId = videoIDInMarkdown(md)
+  if (videoId === null && hasSidecar) videoId = loadSidecar(join(d, SIDECAR_FILE))?.id ?? null
   return {
     folder: d,
     title: titleInMarkdown(text) ?? name,
@@ -385,9 +411,12 @@ export function entry(d: string): FolderEntry | null {
     progress,
     finished: progress ? finished(progress) : false,
     fraction: progress ? fraction(progress) : 0,
-    notes: formatted ? Notes.parse(text).length : 0,
-    status: statusValue(text, parent.id),
-    statusOptions: parent.options && parent.options.length ? parent.options : DEFAULT_OPTIONS,
+    notes: notes.length,
+    mochiOpen: notes.filter((n) => n.category === 'mochi' && !n.resolved).length,
+    videoId,
+    channel: channelInMarkdown(text),
+    status: mapStatus(statusValue(text, parent.id), options),
+    statusOptions: options,
   }
 }
 

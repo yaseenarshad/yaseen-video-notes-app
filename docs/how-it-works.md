@@ -321,36 +321,80 @@ background/box-shadow only), so the text never moves under the selection while t
 Each video has a status, stored exactly as yaseen-docs-app stores a Select column, so both apps show the same
 value:
 
-- The column is declared once in the **parent folder's** `.folder.md` (e.g. `learning-log/.folder.md`):
+- The column is declared once in the **parent folder's** `.folder.md` (e.g. `learning-log/.folder.md`), with
+  yaseen-docs-app's own default status options, so both apps show the same board:
   ```yaml
   folder_settings:
     columns:
       status:
         kind: select
         options:
-          - 1-To-Watch
-          - 2-Watching
-          - 3-Watched
-          - 4-Carded
+          - 1-Backlog
+          - 2-Todo
+          - 3-In-Progress
+          - 4-Done
         optionSort: manual
   ```
   The app only adds this when the folder has no `status` column; an existing column (and its options) is used
-  as it is, and no other setting (id, title, views, other columns) is touched.
+  as it is, and no other setting (id, title, views, other columns) is touched. One exception: options that are
+  **exactly** the list older versions of this app wrote (`1-To-Watch, 2-Watching, 3-Watched, 4-Carded`, in that
+  order) are replaced by the new list when the app writes the folder file (only those lines, under the lock).
 - The value is in the transcript `.md`'s own frontmatter, under the parent folder's `id` (from its `.folder.md`):
   ```yaml
   ---
   id: YAS-398
   in:
     3vzxnrx8km6f:
-      status: 2-Watching
+      status: 3-In-Progress
   ---
   ```
   If the parent folder has no `id`, the value is a top-level `status:` key (the docs app's fallback).
 - Edits are line-level: only the status line (and a missing `in:` / folder line) is added or changed; every other
   key keeps its place and quoting. A frontmatter shape the app does not understand (e.g. `in: {…}`) is left alone.
-- Status only moves forward by itself: opening a video moves an empty / `1-To-Watch` status to `2-Watching`;
-  finishing it (the resume rule) moves it to `3-Watched`. You can set any value by hand (New Tab table: the Status
-  cell, right-click → Set Status, or "Group by status" and drag a row to another group).
+  Both files are written under their lock (`<file>.lock`) with an atomic write.
+- **Old values** are read as new ones everywhere (files from a Mac that has not synced yet still work):
+  `1-To-Watch` → `2-Todo`, `2-Watching` → `3-In-Progress`, `3-Watched` → `3-In-Progress`, `4-Carded` → `4-Done`
+  (`core/status.ts` `LEGACY` / `mapStatus`; only when the folder's options have the new value and not the old one).
+  A status the app writes is always the new string. To rewrite a whole folder:
+  `video-notes migrate-status <folder> [--dry-run]` (`core/statusMigrate.ts`): the `.folder.md` options (only the
+  exact old list) and each transcript's old value (minimal edit through `changeFile`, locked); prints what changed;
+  a second run changes nothing.
+- The status moves by itself only when you **open** a video: an empty / `1-Backlog` / `2-Todo` status becomes
+  `3-In-Progress` (only when the folder's options have `3-In-Progress`). Finishing a video does not change it;
+  `4-Done` is always set by hand (New Tab table: the Status cell, right-click → Set Status, "Group by status" and
+  drag a row to another group; or the Board: drag a card to another column, right-click → Set Status).
+
+### The board (New Tab → Table | Board)
+
+- A **Board | Table** toggle in the list header. The Board is the default: every New Tab, folder, Recent and In
+  progress view opens in it. Table lasts only until another view is chosen (it is not saved). The Board works for
+  a folder (learning-log) and for Recent / In progress.
+- One column per status option, in option order, titled without the number ("In progress") with a count; a
+  "No status" column comes first when some videos have none (not a drop target). Columns scroll on their own;
+  the board scrolls sideways when the window is narrow.
+- A card: the YouTube thumbnail (`https://i.ytimg.com/vi/<id>/mqdefault.jpg`, a plain block when it does not load),
+  the title (2 lines), the channel (from the `- channel:` header line), a thin progress bar + "38m left" /
+  "Finished", the notes count and the open 🃏 `#mochi` count, and "needs setup" when relevant. Click opens it;
+  right-click: Set Status ▸, Move to Top, Show in Finder, Copy YouTube Link.
+- Each column header has a collapse chevron. A collapsed column is a narrow strip with its name written vertically
+  and its count ("Done 12"); click the strip to expand it. Collapsed columns are saved in settings
+  (`collapsedColumns`: status values, `:none` for "No status") and apply to every board view; the other columns
+  widen to fill. The whole strip is a drop target (not "No status"): dropping a card there sets that status, puts
+  the card at the top of that column's saved order (folders), keeps the column collapsed and shows "Moved to Done".
+- Drag a card to another column to change its status (the locked status write); within a column to reorder.
+  A line shows where it goes. The move shows at once; when a write fails a red chip says why and the board
+  goes back to what the files say.
+- **Order** (folders only; Recent / In progress keep their own order and do not reorder): a small hidden file in
+  the parent folder, synced with the vault, so every Mac shows the same board:
+  ```json
+  { "order": { "3-In-Progress": ["<videoId>", "…"], "2-Todo": ["…"] } }
+  ```
+  `<parent>/.video-notes-board.json` (pretty JSON, atomic write under its lock, only when it changes;
+  `core/board.ts` is the logic, `core/boardFile.ts` the file). A column shows the ids in its list first, then the
+  other cards newest first. Moving a card takes it out of every list and puts it at the drop spot; dropping it
+  below cards that are not in the list yet adds those above it, so they stay put. Ids of folders that are gone,
+  or that now have another status, are dropped on the next write.
+- The table has a small thumbnail at the left of each row.
 
 ## 6. The app
 
@@ -360,7 +404,8 @@ value:
   seek starts the YouTube player) is paused at once. Open tabs come back on the next launch.
 - The New Tab page is a Finder-style browser: sidebar (Recent, In progress, pinned folders like learning-log,
   Add Folder…, Other Folder…), a paste-a-link field with the destination folder chip, and a sortable table
-  (Title, Date, Progress, Status, Notes), optionally grouped by status. Enter or double-click opens.
+  (thumbnail, Title, Date, Progress, Status, Notes), optionally grouped by status, or a Kanban board (section 5).
+  Enter or double-click opens a row; a click opens a card.
 - The sidebar's **📺 Feed** (above the Library, with a count badge) is described in [section 7](#7-the--feed).
 - Settings live in `~/Library/Application Support/Yaseen Video Notes/settings.json` (written atomically): speed,
   favorite/last speed, transcript text size, focus mode, divider position, side-panel tab, app zoom (`uiScale`),

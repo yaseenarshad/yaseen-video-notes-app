@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from "react"
 import { parseYouTubeID } from '../core/transcript'
-import type { FeedState, FolderEntry, LauncherInfo, MenuSpec, Source, WorkEvent } from '../shared/api'
+import { arrangeColumn, cardId, moveCard, newestFirst, type BoardOrder, type DropSpot } from '../core/board'
+import type { FeedState, FolderEntry, LauncherInfo, LibraryView, MenuSpec, Source, WorkEvent } from '../shared/api'
+import { Board, Thumb, type BoardColumn } from './Board'
 import { FeedView } from './Feed'
 
-const DEFAULT_OPTIONS = ['1-To-Watch', '2-Watching', '3-Watched', '4-Carded']
+/** yaseen-docs-app's default status options (core/status.ts DEFAULT_OPTIONS). */
+const DEFAULT_OPTIONS = ['1-Backlog', '2-Todo', '3-In-Progress', '4-Done']
 const name = (p: string): string => p.split('/').filter(Boolean).pop() ?? p
 const tilde = (p: string, home: string): string => (home && p.startsWith(home + '/') ? '~' + p.slice(home.length) : p)
 const sameSource = (a: Source | null, b: Source | null): boolean =>
@@ -53,6 +56,14 @@ export function NewTab({ tabId, active, work, clearWork }: { tabId: string; acti
   const [linkError, setLinkError] = useState('')
   const [filter, setFilter] = useState('')
   const [group, setGroup] = useState(false)
+  /** Board is the default and what every view opens in; Table lasts only until another view is chosen (not saved). */
+  const [view, setView] = useState<LibraryView>('board')
+  /** The folder's board order (Board view of a folder); null for Recent / In progress (no manual order). */
+  const [order, setOrder] = useState<BoardOrder | null>(null)
+  /** A board move that could not be written (shown as a chip; the board goes back to what the files say). */
+  const [moveError, setMoveError] = useState<string | null>(null)
+  /** Collapsed board columns (settings `collapsedColumns`; every board view). */
+  const [collapsedCols, setCollapsedCols] = useState<Set<string>>(new Set())
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [sort, setSort] = useState<{ key: SortKey; asc: boolean }>({ key: 'date', asc: false })
   const [selected, setSelected] = useState<string | null>(null)
@@ -73,6 +84,7 @@ export function NewTab({ tabId, active, work, clearWork }: { tabId: string; acti
     void window.fa.launcherInfo().then((i) => {
       setInfo(i)
       setGroup(i.groupByStatus)
+      setCollapsedCols(new Set(i.collapsedColumns))
       setDestination(i.pinned[0] ?? i.outputParent)
       setSource(i.pinned[0] ? { kind: 'folder', path: i.pinned[0] } : { kind: 'recent' })
     })
@@ -82,8 +94,9 @@ export function NewTab({ tabId, active, work, clearWork }: { tabId: string; acti
     const s = sourceRef.current
     if (!s) return
     setLoading(true)
-    void window.fa.list(s).then((list) => {
-      if (sameSource(s, sourceRef.current)) { setRows(list); setLoading(false) }
+    const orderP = s.kind === 'folder' ? window.fa.boardOrder(s.path) : Promise.resolve(null)
+    void Promise.all([window.fa.list(s), orderP]).then(([list, o]) => {
+      if (sameSource(s, sourceRef.current)) { setRows(list); setOrder(o); setLoading(false) }
     })
   }, [])
 
@@ -106,9 +119,11 @@ export function NewTab({ tabId, active, work, clearWork }: { tabId: string; acti
   useEffect(() => { if (feedOn && active && feed && feed.newCount > 0) window.fa.feedOpened(true) }, [feedOn, active, feed])
   useEffect(() => { if (active) void window.fa.feedState().then(setFeed) }, [active])
   useEffect(() => { if (!notice) return; const t = setTimeout(() => setNotice(null), 2500); return () => clearTimeout(t) }, [notice])
+  useEffect(() => { if (!moveError) return; const t = setTimeout(() => setMoveError(null), 8000); return () => clearTimeout(t) }, [moveError])
 
   const choose = (s: Source) => {
     setFeedOn(false)
+    setView('board')
     setSource(s)
     if (s.kind === 'folder') setDestination(s.path)
   }
@@ -159,6 +174,61 @@ export function NewTab({ tabId, active, work, clearWork }: { tabId: string; acti
   }
 
   const statusMenu = (r: FolderEntry): MenuSpec[] => r.statusOptions.map((o) => ({ id: 'status:' + o, label: o, checked: o === r.status }))
+
+  const changeView = (v: LibraryView) => setView(v)
+
+  const toggleColumn = (key: string) => setCollapsedCols((c) => {
+    const n = new Set(c)
+    if (n.has(key)) n.delete(key); else n.add(key)
+    window.fa.setCollapsedColumns([...n])
+    return n
+  })
+
+  /**
+   * A card dropped on the board: shown at once (optimistic), then written — the status (locked frontmatter write)
+   * and, in a folder, the order file. A failed write shows a chip and reloads what the files say.
+   */
+  const moveCardTo = async (r: FolderEntry, to: string, spot: DropSpot) => {
+    const manual = source?.kind === 'folder' && order !== null
+    setRows((rs) => rs.map((x) => (x.folder === r.folder ? { ...x, status: to } : x)))
+    if (manual) {
+      const column = rows.map((x) => (x.folder === r.folder ? { ...x, status: to } : x)).filter((x) => x.status === to)
+      setOrder((o) => moveCard(o ?? {}, cardId(r), to, arrangeColumn(column, (o ?? {})[to], cardId, newestFirst).map(cardId), spot))
+    }
+    const err = manual ? await window.fa.boardMove(r.folder, to, spot) : r.status === to ? null : await window.fa.setStatus(r.folder, to)
+    if (err) setMoveError(err)
+    reload()
+  }
+
+  const copyLink = async (r: FolderEntry) => {
+    if (!r.videoId) return
+    const url = `https://www.youtube.com/watch?v=${r.videoId}`
+    try { await navigator.clipboard.writeText(url) } catch {
+      const t = document.createElement('textarea'); t.value = url; document.body.appendChild(t); t.select(); document.execCommand('copy'); t.remove()
+    }
+    setNotice('Copied the YouTube link')
+  }
+
+  const cardMenu = async (_e: MouseEvent, r: FolderEntry, col: BoardColumn) => {
+    const manual = source?.kind === 'folder' && order !== null
+    const inColumn = !!r.status && r.statusOptions.includes(r.status)
+    const id = await window.fa.popup([
+      { label: 'Set Status', submenu: statusMenu(r) },
+      { id: 'top', label: 'Move to Top', enabled: manual && inColumn && col.cards[0]?.folder !== r.folder },
+      { separator: true },
+      { id: 'finder', label: 'Show in Finder' },
+      { id: 'copy', label: 'Copy YouTube Link', enabled: !!r.videoId },
+    ])
+    if (id === 'finder') window.fa.showInFinder(r.folder)
+    else if (id === 'copy') void copyLink(r)
+    else if (id === 'top' && r.status) void moveCardTo(r, r.status, { top: true })
+    else if (id?.startsWith('status:')) {
+      const to = id.slice(7)
+      if (to === r.status) return
+      if (manual) void moveCardTo(r, to, { top: true })
+      else void setStatus(r, to)
+    }
+  }
 
   const rowMenu = async (e: MouseEvent, r: FolderEntry) => {
     e.preventDefault()
@@ -264,6 +334,7 @@ export function NewTab({ tabId, active, work, clearWork }: { tabId: string; acti
       onDragOver={inGroup ? (e) => { e.preventDefault(); setDropOn(inGroup) } : undefined}
       onDrop={inGroup ? (e) => drop(e, inGroup) : undefined}
       onClick={() => { setSelected(r.folder); tableRef.current?.focus() }} onDoubleClick={() => open(r)} onContextMenu={(e) => rowMenu(e, r)}>
+      <div className="td td--thumb"><Thumb id={r.videoId} className="rowthumb" /></div>
       <div className="td td--title" title={r.folder}>{r.title}</div>
       <div className="td td--date">{dateLabel(r.date)}</div>
       <div className="td td--progress"><ProgressCell r={r} /></div>
@@ -311,8 +382,14 @@ export function NewTab({ tabId, active, work, clearWork }: { tabId: string; acti
           <h2 className="listheader__title">{title}</h2>
           {loading && <span className="spinner" />}
           <span className="grow" />
-          <button className={'togglebtn' + (group ? ' togglebtn--on' : '')} aria-pressed={group}
-            onClick={() => { setGroup(!group); window.fa.setGroupByStatus(!group) }}>Group by status</button>
+          <div className="segmented" role="group" aria-label="View">
+            <button className={'segmented__btn' + (view === 'board' ? ' segmented__btn--on' : '')} aria-pressed={view === 'board'} onClick={() => changeView('board')}>Board</button>
+            <button className={'segmented__btn' + (view === 'table' ? ' segmented__btn--on' : '')} aria-pressed={view === 'table'} onClick={() => changeView('table')}>Table</button>
+          </div>
+          {view === 'table' && (
+            <button className={'togglebtn' + (group ? ' togglebtn--on' : '')} aria-pressed={group}
+              onClick={() => { setGroup(!group); window.fa.setGroupByStatus(!group) }}>Group by status</button>
+          )}
           <label className="filter">
             {Icon.search}
             <input ref={filterRef} placeholder="Filter" value={filter} spellCheck={false} onChange={(e) => setFilter(e.target.value)}
@@ -324,9 +401,15 @@ export function NewTab({ tabId, active, work, clearWork }: { tabId: string; acti
             <div className="empty__icon">{filter ? Icon.search : source?.kind === 'recent' ? Icon.clock : source?.kind === 'inProgress' ? Icon.play : Icon.folder}</div>
             <div className="empty__text">{emptyText}</div>
           </div>
+        ) : view === 'board' ? (
+          <Board rows={filtered} options={filtered[0]?.statusOptions ?? DEFAULT_OPTIONS}
+            order={source?.kind === 'folder' ? (order ?? {}) : null} selected={selected} onSelect={setSelected}
+            onOpen={open} onMenu={cardMenu} onMove={(r, to, spot, collapsedLabel) => { if (collapsedLabel) setNotice(`Moved to ${collapsedLabel}`); void moveCardTo(r, to, spot) }}
+            collapsed={collapsedCols} onToggleCollapse={toggleColumn} />
         ) : (
           <div className={'table' + (group ? ' table--grouped' : '')} role="grid" tabIndex={0} ref={tableRef} onKeyDown={onTableKey}>
             <div className="thead" role="row">
+              <div className="th td--thumb" aria-hidden="true" />
               {header('title', 'Title', 'td--title')}
               {header('date', 'Date', 'td--date')}
               {header('progress', 'Progress', 'td--progress')}
@@ -371,6 +454,12 @@ export function NewTab({ tabId, active, work, clearWork }: { tabId: string; acti
         </div>
       ) : null}
       {notice && <div className="zoomtoast">{notice}</div>}
+      {moveError && (
+        <div className="errorchip" role="alert">
+          <span className="errorchip__text">{moveError}</span>
+          <button className="errorchip__close" aria-label="Dismiss" onClick={() => setMoveError(null)}>×</button>
+        </div>
+      )}
     </div>
   )
 }

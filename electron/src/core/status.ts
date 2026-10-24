@@ -3,23 +3,66 @@ import { dirname, join } from 'node:path'
 import { atomicWrite } from './atomic'
 import { graphemes, isSwiftDouble, trimWS, trimWSNL } from './text'
 import { changeFile } from './notes'
+import { withFileLock } from './fileLock'
 
 /**
  * Per-video status, stored exactly the way yaseen-docs-app stores a Select column, so both apps
  * show the same value:
  *
  * - The column is declared in the PARENT folder's `.folder.md` (`folder_settings.columns.status`,
- *   kind select, options `1-To-Watch…4-Carded`, `optionSort: manual`).
+ *   kind select, options `1-Backlog, 2-Todo, 3-In-Progress, 4-Done` — yaseen-docs-app's own default status
+ *   options — and `optionSort: manual`).
  * - The value is in the transcript .md's own frontmatter, under that folder's id: `in:` →
- *   `<folderId>:` → `status: 2-Watching`. A folder with no id keeps a top-level `status:` key.
+ *   `<folderId>:` → `status: 3-In-Progress`. A folder with no id keeps a top-level `status:` key.
+ *
+ * Older versions wrote `1-To-Watch, 2-Watching, 3-Watched, 4-Carded`. Those are read as the new options
+ * everywhere (`LEGACY`), an exactly-old option list in `.folder.md` is replaced when the app writes the column,
+ * and `migrateStatus` (CLI `video-notes migrate-status`) rewrites old values in the files.
  *
  * Edits are minimal and line-based: only the lines for this value are added or changed; every other
  * key, its order, quoting and comments stay. A shape this code does not understand (e.g. a
  * flow-style `in: {…}`) is never overwritten.
  */
 export const COLUMN = 'status'
-export const DEFAULT_OPTIONS = ['1-To-Watch', '2-Watching', '3-Watched', '4-Carded']
+export const DEFAULT_OPTIONS = ['1-Backlog', '2-Todo', '3-In-Progress', '4-Done']
+/** The option list older versions of the app wrote (in this order). */
+export const OLD_OPTIONS = ['1-To-Watch', '2-Watching', '3-Watched', '4-Carded']
+/** Old value → new value. */
+export const LEGACY: Readonly<Record<string, string>> = {
+  '1-To-Watch': '2-Todo',
+  '2-Watching': '3-In-Progress',
+  '3-Watched': '3-In-Progress',
+  '4-Carded': '4-Done',
+}
+/** Opening a video moves an empty / Backlog / Todo status here. Done is always set by hand. */
+export const IN_PROGRESS = '3-In-Progress'
+const BEFORE_IN_PROGRESS = ['1-Backlog', '2-Todo']
 export const FOLDER_FILE = '.folder.md'
+
+const sameList = (a: readonly string[], b: readonly string[]): boolean => a.length === b.length && a.every((x, i) => x === b[i])
+/** True for exactly the option list older versions of the app wrote. */
+export const isOldOptions = (o: readonly string[] | null): boolean => !!o && sameList(o, OLD_OPTIONS)
+
+/** The options a folder's column really offers: the declared ones (an old app-written list reads as the new one), else the defaults. */
+export function effectiveOptions(declared: string[] | null): string[] {
+  if (!declared || declared.length === 0 || isOldOptions(declared)) return DEFAULT_OPTIONS
+  return declared
+}
+
+/** A stored value as the app shows it: an old value reads as its new one when the folder's options have that (and not the old one). */
+export function mapStatus(v: string | null, options: readonly string[] = DEFAULT_OPTIONS): string | null {
+  if (v === null || v === '') return null
+  if (options.includes(v)) return v
+  const n = LEGACY[v]
+  return n !== undefined && options.includes(n) ? n : v
+}
+
+/** Auto-advance on opening a video: empty / Backlog / Todo → In progress (when the folder offers it); else null (no change). */
+export function openAdvance(current: string | null, options: readonly string[]): string | null {
+  if (!options.includes(IN_PROGRESS)) return null
+  const c = mapStatus(current, options)
+  return c === null || BEFORE_IN_PROGRESS.includes(c) ? IN_PROGRESS : null
+}
 
 export class Refused extends Error {
   constructor(d: string) {
@@ -207,6 +250,37 @@ export function addColumn(content: string, options: string[] = DEFAULT_OPTIONS):
   return join_(fm, s.body)
 }
 
+/**
+ * The folder file with an exactly-old option list (`1-To-Watch…4-Carded`, written by older versions of this
+ * app) replaced by the new defaults: only those option lines change. Any other list (the user's own) and a
+ * missing column come back unchanged.
+ */
+export function migrateOptions(content: string): string {
+  const s = split(content)
+  if (!s) return content
+  const fm = [...s.lines]
+  if (!isOldOptions(columnOptions(fm))) return content
+  const fsK = child(fm, [0, fm.length], 'folder_settings')!
+  const c = child(fm, [fsK.index + 1, blockEnd(fm, fsK.index, fsK.indent)], 'columns')!
+  const st = child(fm, [c.index + 1, blockEnd(fm, c.index, c.indent)], COLUMN)!
+  const o = child(fm, [st.index + 1, blockEnd(fm, st.index, st.indent)], 'options')!
+  const inline = keyValue(fm[o.index])?.value
+  if (inline !== undefined && inline.startsWith('[')) {
+    fm[o.index] = `${' '.repeat(o.indent)}options: [${DEFAULT_OPTIONS.map(yaml).join(', ')}]`
+  } else {
+    let k = 0
+    for (let i = o.index + 1; i < blockEnd(fm, o.index, o.indent) && k < DEFAULT_OPTIONS.length; i++) {
+      const t = trimWS(fm[i])
+      if (!t.startsWith('- ')) continue
+      fm[i] = fm[i].slice(0, fm[i].indexOf('- ') + 2) + yaml(DEFAULT_OPTIONS[k++])
+    }
+  }
+  return join_(fm, s.body)
+}
+
+/** What the app writes into a folder file: the status column added when missing, an old app-written option list replaced. */
+export const withColumn = (content: string): string => migrateOptions(addColumn(content))
+
 // ---------- the note (.md) ----------
 
 /** The note's status for the folder `folderId` (null folder id: the top-level key). */
@@ -287,46 +361,82 @@ export function parentInfo(videoFolder: string): { parent: string; info: FolderI
   return { parent, info: folderInfo(readText(join(parent, FOLDER_FILE)) ?? '') }
 }
 
-/** The status of a video folder's transcript (null: not set). */
+/** The status of a video folder's transcript as the app shows it (old values read as new ones; null: not set). */
 export function readStatus(videoFolder: string, markdown: string): string | null {
   const text = readText(markdown)
   if (text === null) return null
-  return value(text, parentInfo(videoFolder).info.id)
+  const info = parentInfo(videoFolder).info
+  return mapStatus(value(text, info.id), effectiveOptions(info.options))
 }
 
-/** The column's options for this video's parent folder (the declared ones, else the defaults). */
+/** The column's options for this video's parent folder (the declared ones, else the defaults; an old app-written list reads as the new one). */
 export function statusOptions(videoFolder: string): string[] {
-  const o = parentInfo(videoFolder).info.options
-  return o && o.length ? o : DEFAULT_OPTIONS
+  return effectiveOptions(parentInfo(videoFolder).info.options)
 }
 
-/** Writes a status: declares the column in the parent's .folder.md if missing, then sets the value in the transcript's frontmatter. Both writes are atomic. */
+/**
+ * Declares the column in a parent folder's .folder.md when missing and replaces an old app-written option
+ * list (under the file's lock: read fresh, change, atomic write, only when it changed). Returns the folder's info.
+ */
+export function ensureFolderColumn(parent: string, dryRun = false): { info: FolderInfo; before: string; after: string } {
+  const folderMD = join(parent, FOLDER_FILE)
+  const run = () => {
+    const before = readText(folderMD) ?? ''
+    const after = withColumn(before)
+    if (after !== before && !dryRun) atomicWrite(folderMD, after)
+    return { info: folderInfo(after), before, after }
+  }
+  return dryRun ? run() : withFileLock(folderMD, run)
+}
+
+/** Writes a status (an old value is written as its new one): declares the column in the parent's .folder.md if missing, then sets the value in the transcript's frontmatter. Both writes are locked and atomic. */
 export function writeStatus(videoFolder: string, markdown: string, val: string): void {
   if (!existsSync(markdown)) throw new Refused('no transcript .md')
-  const folderMD = join(dirname(videoFolder), FOLDER_FILE)
-  const folderText = readText(folderMD) ?? ''
-  const withColumn = addColumn(folderText)
-  if (withColumn !== folderText) atomicWrite(folderMD, withColumn)
-  const id = folderInfo(withColumn).id
+  const { info } = ensureFolderColumn(dirname(videoFolder))
+  const v = mapStatus(val, effectiveOptions(info.options)) ?? val
   // under the transcript's file lock (agents write it too): read fresh, change, atomic write;
   // the file is written anyway, so it gets the current agent guide too (idempotent)
-  changeFile(markdown, (text) => setValue(text, id, val))
+  changeFile(markdown, (text) => setValue(text, info.id, v))
 }
 
-/** Moves the status forward to option `index` (never backward). Returns the new value if written. */
-export function advanceStatus(videoFolder: string, markdown: string, index: number, log: (s: string) => void = () => {}): string | null {
-  const opts = statusOptions(videoFolder)
-  if (index >= opts.length) return null
+/** Opening a video: an empty / Backlog / Todo status becomes In progress. Returns the new value if written. */
+export function advanceOnOpen(videoFolder: string, markdown: string, log: (s: string) => void = () => {}): string | null {
   const current = readStatus(videoFolder, markdown)
-  const found = current === null ? -1 : opts.indexOf(current)
-  const at = current === null ? -1 : found >= 0 ? found : Number.MAX_SAFE_INTEGER
-  if (!(at < index)) return null
+  const next = openAdvance(current, statusOptions(videoFolder))
+  if (next === null) return null
   try {
-    writeStatus(videoFolder, markdown, opts[index])
-    log(`status ${current ?? '-'} → ${opts[index]} for ${videoFolder.split('/').pop()}`)
-    return opts[index]
+    writeStatus(videoFolder, markdown, next)
+    log(`status ${current ?? '-'} → ${next} for ${videoFolder.split('/').pop()}`)
+    return next
   } catch (e) {
     log(`could not set status: ${String(e)}`)
     return null
   }
+}
+
+/**
+ * Rewrites an old status value (`1-To-Watch`…`4-Carded`) in a transcript's frontmatter to its new one, when
+ * the parent folder's options have the new value. A minimal edit (only the status line), under the file's lock
+ * through `changeFile` (so the agent-guide rules hold). Returns the change, or null when there was nothing to do.
+ * `dryRun`: reports without writing.
+ */
+export function migrateStatus(mdPath: string, parentFolder: string, dryRun = false): { from: string; to: string } | null {
+  const info = folderInfo(readText(join(parentFolder, FOLDER_FILE)) ?? '')
+  const options = effectiveOptions(info.options)
+  const plan = (text: string): { from: string; to: string } | null => {
+    const from = value(text, info.id)
+    if (from === null || LEGACY[from] === undefined) return null
+    const to = mapStatus(from, options)
+    return to !== null && to !== from ? { from, to } : null
+  }
+  if (dryRun) {
+    const text = readText(mdPath)
+    return text === null ? null : plan(text)
+  }
+  let change: { from: string; to: string } | null = null
+  changeFile(mdPath, (text) => {
+    change = plan(text)
+    return change ? setValue(text, info.id, change.to) : text
+  })
+  return change
 }

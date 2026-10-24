@@ -1,10 +1,16 @@
-import { readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { resolve } from 'node:path'
 import { format, make } from '../core/folderMaker'
 import * as Notes from '../core/notes'
+import { migrateFolder, migrationText } from '../core/statusMigrate'
 import { decodeSidecar, folderName, parseInfoJSON, wordCount } from '../core/transcript'
 import { AGENT_COMMANDS, AGENT_USAGE, runAgent } from './agent'
+
+export const MIGRATE_USAGE = `  video-notes migrate-status <folder> [--dry-run]
+        Moves a folder of video folders (like learning-log) from the old statuses (1-To-Watch, 2-Watching,
+        3-Watched, 4-Carded) to yaseen-docs-app's (1-Backlog, 2-Todo, 3-In-Progress, 4-Done): the .folder.md
+        options (only when exactly the old set) and each transcript's value. Prints what changed. Safe to rerun.`
 
 export const USAGE = `USAGE:
   Yaseen Video Notes                                   Open the app.
@@ -18,7 +24,10 @@ OPTIONS:
                        Same as the VIDEO_NOTES_DEBUG_LOG environment variable.
 
 AGENTS (the \`video-notes\` command runs this CLI without the app's window):
-${AGENT_USAGE.split('\n').slice(1).join('\n')}`
+${AGENT_USAGE.split('\n').slice(1).join('\n')}
+
+STATUS MIGRATION:
+${MIGRATE_USAGE}`
 
 const expand = (p: string): string => resolve(p.startsWith('~/') ? homedir() + p.slice(1) : p)
 /** Like Swift's `standardizedFileURL`: /private/tmp → /tmp (only the printed paths). */
@@ -31,12 +40,13 @@ export function flag(args: string[], name: string): string | null {
 
 /** True when the args ask for a CLI mode (no UI). */
 export const isCLI = (args: string[]): boolean =>
-  (AGENT_COMMANDS as readonly string[]).includes(args[0] ?? '') || args.includes('--help') || args.includes('-h') || flag(args, '--make') !== null || flag(args, '--format') !== null
+  (AGENT_COMMANDS as readonly string[]).includes(args[0] ?? '') || args[0] === 'migrate-status' || args.includes('--help') || args.includes('-h') || flag(args, '--make') !== null || flag(args, '--format') !== null
 
 /** Runs a CLI mode and returns the exit code. */
 export async function runCLI(args: string[], out: (s: string) => void = (s) => process.stdout.write(s + '\n'),
   err: (s: string) => void = (s) => process.stderr.write(s + '\n')): Promise<number> {
   if ((AGENT_COMMANDS as readonly string[]).includes(args[0] ?? '')) return runAgent(args, out, err)
+  if (args[0] === 'migrate-status') return migrateCLI(args.slice(1), out, err)
   if (args.includes('--help') || args.includes('-h')) { out(USAGE); return 0 }
   const url = flag(args, '--make')
   if (url !== null) {
@@ -82,4 +92,22 @@ export async function runCLI(args: string[], out: (s: string) => void = (s) => p
   }
   out(USAGE)
   return 2
+}
+
+/** `migrate-status <folder> [--dry-run]`: exit 0 ok, 1 some file could not be changed, 2 bad usage. */
+function migrateCLI(args: string[], out: (s: string) => void, err: (s: string) => void): number {
+  const dryRun = args.includes('--dry-run') || args.includes('-n')
+  const rest = args.filter((a) => a !== '--dry-run' && a !== '-n')
+  const bad = rest.find((a) => a.startsWith('-'))
+  if (bad || rest.length !== 1) { err(bad ? `error: unknown option ${bad}` : 'error: migrate-status needs one <folder>'); err(MIGRATE_USAGE); return 2 }
+  const folder = expand(rest[0])
+  if (!existsSync(folder) || !statSync(folder).isDirectory()) { err(`error: not a folder: ${folder}`); return 2 }
+  try {
+    const m = migrateFolder(folder, dryRun)
+    out(migrationText(m))
+    return m.errors.length ? 1 : 0
+  } catch (e) {
+    err(`error: ${e instanceof Error ? e.message : String(e)}`)
+    return 1
+  }
 }

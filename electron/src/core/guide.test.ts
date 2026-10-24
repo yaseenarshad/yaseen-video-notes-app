@@ -68,10 +68,10 @@ describe('agent guide', () => {
     const folder = join(dir, '10-17-a'); mkdirSync(folder)
     const path = join(folder, 'a.md')
     writeFileSync(path, sampleMD)
-    writeStatus(folder, path, '2-Watching')
+    writeStatus(folder, path, '2-Watching') // an old value is written as its new one
     const out = readFileSync(path, 'utf8')
     expect(count(out, 'follow-along guide v')).toBe(1)
-    expect(out).toContain('status: 2-Watching')
+    expect(out).toContain('status: 3-In-Progress')
     expect(paragraphCount(out)).toBe(paragraphCount(sampleMD))
     expect(out).toContain(`- uploaded: 20261017\n\n${GUIDE}\n\n---\n`)
   })

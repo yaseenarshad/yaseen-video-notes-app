@@ -24,6 +24,8 @@ interface Data {
   recents: Recent[]
   uiScale: number
   groupByStatus: boolean
+  /** Collapsed Board columns (status values, ":none" for "No status"); every board view. */
+  collapsedColumns?: string[]
   bounds?: { x: number; y: number; width: number; height: number }
   importedFromSwift?: boolean
   /** When the daily yt-dlp check last ran (ISO time). */
@@ -106,6 +108,10 @@ class SettingsStore {
 
   get groupByStatus(): boolean { return this.d.groupByStatus }
   set groupByStatus(v: boolean) { this.d.groupByStatus = v; this.save() }
+
+  get collapsedColumns(): string[] { return Array.isArray(this.d.collapsedColumns) ? this.d.collapsedColumns.filter((x) => typeof x === 'string') : [] }
+  set collapsedColumns(v: string[]) { this.d.collapsedColumns = [...new Set(v.filter((x) => typeof x === 'string'))]; this.save() }
+
 
   /** When the daily yt-dlp check last ran (ISO time). */
   get ytdlpCheckedAt(): string | undefined { return this.d.ytdlpCheckedAt }

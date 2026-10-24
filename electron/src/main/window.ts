@@ -2,9 +2,11 @@ import { app, BaseWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, screen,
 import { randomUUID } from 'node:crypto'
 import { existsSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { basename, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { ensure, entry, inProgress, listFolders, make, markdownFile, NeedsFormatting, type FolderEntry, type TranscriptFolder } from '../core/folderMaker'
-import { writeStatus } from '../core/status'
+import { cardId, type DropSpot } from '../core/board'
+import { moveOnBoard, readBoard } from '../core/boardFile'
+import { readStatus, writeStatus } from '../core/status'
 import { parseYouTubeID } from '../core/transcript'
 import type { LauncherInfo, MenuSpec, ShellCommand, ShellState, Source, TabInfo, WorkEvent } from '../shared/api'
 import { DebugLog } from './debugLog'
@@ -356,9 +358,7 @@ export function registerIPC(get: () => MainWindow | null): void {
   ipcMain.on('tab:select', (_e, id: string) => w()?.select(id))
   ipcMain.on('tab:close', (_e, id: string) => w()?.close(id))
   ipcMain.on('tab:menu', (_e, id: string) => w()?.tabMenu(id))
-  ipcMain.handle('launcher:info', (): LauncherInfo => ({
-    pinned: Settings.pinnedFolders, outputParent: Settings.outputParent, groupByStatus: Settings.groupByStatus, home: homedir(),
-  }))
+  ipcMain.handle('launcher:info', (): LauncherInfo => launcherInfo())
   ipcMain.handle('launcher:list', (_e, source: Source) => listSource(source))
   ipcMain.handle('launcher:addFolder', async (_e, startAt?: string) => {
     const win = w()
@@ -374,7 +374,7 @@ export function registerIPC(get: () => MainWindow | null): void {
   })
   ipcMain.handle('launcher:removeFolder', (_e, path: string): LauncherInfo => {
     Settings.pinnedFolders = Settings.pinnedFolders.filter((p) => p !== path)
-    return { pinned: Settings.pinnedFolders, outputParent: Settings.outputParent, groupByStatus: Settings.groupByStatus, home: homedir() }
+    return launcherInfo()
   })
   ipcMain.on('launcher:open', (_e, tabId: string, path: string) => void w()?.openFolder(tabId, path))
   ipcMain.on('launcher:openExisting', (_e, tabId: string, startAt?: string) => void w()?.openExisting(tabId, startAt))
@@ -391,12 +391,37 @@ export function registerIPC(get: () => MainWindow | null): void {
     }
   })
   ipcMain.on('launcher:groupByStatus', (_e, on: boolean) => { Settings.groupByStatus = !!on })
+  ipcMain.on('launcher:collapsed', (_e, keys: unknown) => { Settings.collapsedColumns = Array.isArray(keys) ? keys.filter((k): k is string => typeof k === 'string') : [] })
+  ipcMain.handle('board:order', (_e, parent: string) => (isDir(parent) ? readBoard(parent) : {}))
+  ipcMain.handle('board:move', (_e, folder: string, to: string, spot: DropSpot) => {
+    try {
+      const md = markdownFile(folder)
+      if (!md) return 'no transcript .md'
+      if (readStatus(folder, md) !== to) {
+        writeStatus(folder, md, to)
+        DebugLog.log(`status set ${to} for ${basename(folder)} (board)`)
+      }
+      const e = entry(folder)
+      if (!e) return null
+      moveOnBoard(dirname(folder), cardId(e), to, spot ?? {})
+      return null
+    } catch (e) {
+      return `Could not move the card: ${e instanceof Error ? e.message : String(e)}`
+    }
+  })
   ipcMain.handle('menu:popup', (_e, items: MenuSpec[]) => w()?.popup(items) ?? null)
   ipcMain.on('finder:show', (_e, path: string) => shell.showItemInFolder(path))
   ipcMain.on('player:native', (e, m: Record<string, unknown>) => {
     const s = w()?.tabs.find((t) => t.session && !t.session.closed && t.session.view.webContents.id === e.sender.id)?.session
     s?.received(m)
   })
+}
+
+function launcherInfo(): LauncherInfo {
+  return {
+    pinned: Settings.pinnedFolders, outputParent: Settings.outputParent, groupByStatus: Settings.groupByStatus,
+    collapsedColumns: Settings.collapsedColumns, home: homedir(),
+  }
 }
 
 function listSource(source: Source): FolderEntry[] {

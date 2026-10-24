@@ -1,7 +1,8 @@
 // The shell renderer's API (tab bar + New Tab pages), exposed by src/preload/shell.ts as window.fa.
+import type { BoardOrder, DropSpot } from '../core/board'
 import type { FolderEntry } from '../core/folderMaker'
 
-export type { FolderEntry }
+export type { BoardOrder, DropSpot, FolderEntry }
 
 export type TabKind = 'new' | 'player'
 export interface TabInfo { id: string; kind: TabKind; title: string; tooltip: string }
@@ -21,7 +22,8 @@ export interface MenuSpec {
   submenu?: MenuSpec[]
 }
 
-export interface LauncherInfo { pinned: string[]; outputParent: string; groupByStatus: boolean; home: string }
+export type LibraryView = 'table' | 'board'
+export interface LauncherInfo { pinned: string[]; outputParent: string; groupByStatus: boolean; collapsedColumns: string[]; home: string }
 
 /** A followed channel in the 📺 Feed. */
 export interface FeedChannelInfo { id: string; title: string; error: string | null; fetchedAt: string | null; videos: number }
@@ -77,6 +79,15 @@ export interface FaAPI {
   create(tabId: string, link: string, destination: string): void
   setStatus(folder: string, value: string): Promise<string | null>
   setGroupByStatus(on: boolean): void
+  /** Saves the collapsed Board columns (status values, ":none"). */
+  setCollapsedColumns(keys: string[]): void
+  /** The board order of a parent folder (`.video-notes-board.json`). */
+  boardOrder(parent: string): Promise<BoardOrder>
+  /**
+   * Moves a card on a folder's board: sets the status first when it changes (locked frontmatter write), then the
+   * order. Returns an error message, or null.
+   */
+  boardMove(folder: string, toStatus: string, spot: DropSpot): Promise<string | null>
   popup(items: MenuSpec[]): Promise<string | null>
   showInFinder(path: string): void
   // 📺 Feed
