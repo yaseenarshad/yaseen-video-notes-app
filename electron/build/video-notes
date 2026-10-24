@@ -1,0 +1,16 @@
+#!/bin/sh
+# video-notes: the Yaseen Video Notes agent CLI (claim / resolve / release / status) without the app's window.
+# It runs the app's bundled cli.js with the app's own Electron as plain Node (ELECTRON_RUN_AS_NODE=1): fast,
+# no dock icon, no second app instance. Every write takes the transcript's lock (<md>.lock), so several
+# agents and the app can change one .md at the same time. `video-notes --help` for usage.
+# Installed by `npm run install-app` as /opt/homebrew/bin/video-notes and ~/.local/bin/video-notes.
+# VIDEO_NOTES_APP=<path to a .app> runs another build (e.g. electron/dist/Yaseen Video Notes.app).
+APP="${VIDEO_NOTES_APP:-/Applications/Yaseen Video Notes.app}"
+BIN="$APP/Contents/MacOS/Yaseen Video Notes"
+CLI="$APP/Contents/Resources/app.asar/out/main/cli.js"
+if [ ! -x "$BIN" ]; then
+  echo "video-notes: no app at $APP (install it with npm run install-app, or set VIDEO_NOTES_APP)" >&2
+  exit 2
+fi
+export ELECTRON_RUN_AS_NODE=1
+exec "$BIN" "$CLI" "$@"

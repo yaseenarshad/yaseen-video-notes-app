@@ -58,9 +58,8 @@ turned into one `-`, trimmed, cut to 80 characters (and a trailing `-` dropped).
 - views: <view_count>
 - uploaded: <YYYYMMDD>
 
-<!-- follow-along guide v2 — rules for agents editing this file (the Yaseen Video Notes app reads it)
-…  (the short agent guide: see "For agents processing notes" below)
--->
+<!-- follow-along guide v3 — this file is managed by the Yaseen Video Notes app. Agents: before editing it, read /Users/yasin/Documents/GitHub/skills-global-yaseen/yaseen-video-notes-app/SKILL.md — and read it again fresh if some time has passed since you last read it, because it changes; don't rely on a remembered copy. -->
+(one line: a pointer to the agent skill file, see "For agents processing notes" below)
 
 ---
 
@@ -173,7 +172,8 @@ Note formats:
   `settings.json`); right-click a note → **Make Mochi / Make General** changes only the tag (atomic write, same
   check as edit); the Notes tab has All · General · Mochi filter chips.
 - New notes go right under their paragraph, after its existing notes. Every change is an **atomic write**
-  (temp file + rename), so Obsidian never sees half a file.
+  (temp file + rename), so Obsidian never sees half a file, and happens **under the file lock** (`<md>.lock`, see
+  "Several agents at once"): read fresh, change, write, unlock — so the app and agents never erase each other's change.
 - Notes typed in Obsidian show up in the player within ~1 s (the page polls; the app re-parses only when the
   file's modified time or size changes).
 - **Editing the transcript text in the `.md` does not change the player** — the words and times come from the
@@ -191,25 +191,85 @@ Note formats:
   again" and nothing is touched.
 
 ### For agents processing notes
-Each transcript `.md` carries a short guide for agents (an HTML comment after the header list; the app and every
-parser ignore HTML comments). The rules:
+Each transcript `.md` carries a one-line guide for agents (an HTML comment after the header list; the app and
+every parser ignore HTML comments; `core/guide.ts` is its only copy). Since **v3** it is only a **pointer** to the
+skill file with the full agent rules, `/Users/yasin/Documents/GitHub/skills-global-yaseen/yaseen-video-notes-app/SKILL.md`
+(kept outside this repo), and tells agents to re-read it fresh because it changes. **Changes to the agent rules go
+in that skill file, never into each `.md`** — so files never need a backfill. (v1 / v2 carried the full rules in
+the file.) The `follow-along guide vN` marker stays, so a file with an older guide gets v3 in place the next time
+the app (or the CLI) writes that file anyway — never a write just for the guide. The rules the skill describes:
 
-- Only act on notes **without** `#resolved`. `#mochi` = make a flashcard from this note.
-- When done: add `#resolved` to the tags right after the time (keep the other tags; lowercase; `#mochi` first)
-  and a line `> ↳ resolved: <what was done>` after the note text, before the `> “quote”` line (or as the last
-  line when there is no quote):
+Tags right after the time link, written lowercase in this order: `#mochi #claimed:<agent>@<time> #resolved`.
+
+- `#mochi` = make a flashcard from this note (no tag = general).
+- `#claimed:a1@2026-10-23T14:30Z` = agent `a1` is working on it since that UTC minute. Agent names are 1–24 chars
+  of `a-z 0-9 -`. A claim older than the **lease** (30 min by default) is **expired**: any agent may claim the note again.
+- `#resolved` = done. A note is never both claimed and resolved: resolving (by the CLI or the app's "Mark
+  resolved") drops the claim. The agent adds `> ↳ resolved by <agent>: <what was done>` after the note text and
+  any earlier resolution lines, before the `> “quote”` line. Older files have `> ↳ resolved: …` (no agent); both
+  are read, and edits keep both.
 
 ```
+> 💬 [19:51](https://www.youtube.com/watch?v=ID&t=1191s) #mochi #claimed:a2@2026-10-23T14:30Z lobotomized = over-specialized
+> “labbotomized”
+
 > 💬 [19:51](https://www.youtube.com/watch?v=ID&t=1191s) #mochi #resolved lobotomized = over-specialized
-> ↳ resolved: made Mochi card "lobotomized" in deck Vocab
+> ↳ resolved by a2: made Mochi card "lobotomized" in deck Vocab
 > “labbotomized”
 ```
 
+- **Note id**: every parsed note has a short `id` (7 base36 chars): a hash of its paragraph index, start time and
+  text without tags, resolution lines and quote (a second identical note in the same spot gets another id). Tag
+  changes keep it (claim → resolve is the same id); **editing the note's text changes the id**, so an agent that
+  claimed it gets "not found" on resolve and skips it, and the edited note is claimable again.
 - Never delete or reword the user's note text; never touch paragraph lines (`[m:ss](…)`), `## m:ss` chapter
   headings, the header or the frontmatter. Notes with no time (`> 💬 text`) belong to the paragraph above.
-- In the player a resolved note is a small ✓ chip (click it to see the note, struck through, and the resolution);
-  right-click → **Mark resolved / Reopen** changes only the tag. The Notes tab filters All · General · Mochi ·
-  Open · Resolved.
+- In the player a resolved note is a small ✓ chip (click it to see the note, struck through, and the resolution:
+  "↳ resolved by a1: …"); right-click → **Mark resolved / Reopen** changes only the tag. A claimed note shows
+  **🤖 a1** (dimmed **🤖 a1 (expired)** after the lease), right-click → **Release claim** gives it back (same
+  locked write). The Notes tab filters All · General · Mochi · Open · 🤖 In progress (valid claims) · Resolved.
+
+### Several agents at once (the `video-notes` command)
+Several AI agents can turn the `#mochi` notes of ONE transcript into cards at the same time, while the user keeps
+taking notes in the app or in Obsidian. Two things must never happen: two agents taking the same note, and two
+writers saving at the same moment so one erases the other's change.
+
+**The lock** (`core/fileLock.ts`). Every write to a transcript `.md` — the app's note save / edit / delete /
+category / resolved / release, status writes, guide insertion, setup conversion, and the CLI's claim / resolve /
+release — runs inside `withFileLock(md, …)` (`changeFile` in `core/notes.ts`): it creates `<md>.lock` with
+O_EXCL holding `{ pid, host, time, token }`, **reads the file fresh**, changes it, writes it atomically, and removes
+the lock in a `finally`. A writer that finds the lock retries with a short backoff (4 → 100 ms) for up to ~10 s,
+then gives up ("file busy": HTTP 503 in the app, exit code 4 in the CLI). A lock older than 30 s, or whose pid is
+dead on this host, is stale and is taken over (through a short `<md>.lock.takeover` file, so two waiters never
+both remove it). Lock files never show as transcripts or folders. Obsidian does not take the lock: its saves are
+whole-file writes, and since every app/CLI change re-reads the file inside the lock, a note typed in Obsidian is
+kept unless Obsidian itself overwrites the file with an older copy it had open.
+
+**The CLI** — `video-notes` (installed by `npm run install-app` into `/opt/homebrew/bin` and `~/.local/bin`) is a
+shell script (`electron/build/video-notes`) that runs the app's bundled `cli.js` with the app's own Electron as
+plain Node: `ELECTRON_RUN_AS_NODE=1 "/Applications/Yaseen Video Notes.app/Contents/MacOS/Yaseen Video Notes"
+"/Applications/Yaseen Video Notes.app/Contents/Resources/app.asar/out/main/cli.js" …`. No window, no dock icon,
+about 0.1 s per call. `VIDEO_NOTES_APP=<path to .app>` points it at another build.
+
+```
+video-notes claim   <md> --agent a1 [--count 5] [--lease 30] [--all]   → JSON array (or [] when nothing is left)
+video-notes resolve <md> --agent a1 --note <id> [--note <id>…] --done "made card \"…\" in deck X"
+video-notes release <md> --agent a1 [--note <id>…]                     (all of a1's claims without --note)
+video-notes status  <md> [--lease 30]                                  counts + list
+```
+
+- `claim` picks, under the lock, up to N notes that are open for this agent: not resolved and not validly claimed
+  by another agent (`#mochi` only; `--all` adds general notes). The agent's own claims come first (re-stamped),
+  then open notes in file order. Each item: `id`, `time`, `end`, `clock`, `link` (YouTube at that time), `text`,
+  `quote`, `category`, `claim`, `paragraph` (full text), `prevParagraph`, `nextParagraph`, `chapter`, `video`
+  (title, channel, url).
+- `resolve` needs the note to be claimed by this agent (its own expired claim is fine; anyone else's is not).
+  A second resolve of the same note by the same agent is a no-op success. Several `--note`s: each is handled on
+  its own; any failure → exit 3 with the reasons on stderr and in the JSON.
+- Output is JSON on stdout (`--text` for people). Exit codes: 0 ok · 2 bad usage · 3 not owner / note not found or
+  changed · 4 lock timeout. The CLI refuses a file without `[m:ss](link)` paragraph lines.
+- An agent loop: claim → make each card → resolve it with what was made → repeat until `[]`; `release` when
+  stopping early. The skill file named in the guide tells agents exactly this.
 
 ### Selecting words
 Selection is the browser's own, character-precise: drag, double-click (one word), triple-click (paragraph),
@@ -232,8 +292,29 @@ background/box-shadow only), so the text never moves under the selection while t
 - It is its **own tiny file** because `.follow-along.json` is big and must not be rewritten (big git diffs).
 - Writes are **rare** to keep git quiet: on pause, after a seek, tab switch, tab close and quit, and at most once
   a minute while playing — and never if the spot moved less than 5 s. Opening a video writes nothing.
-- On open the video jumps to 3 s before the saved spot and shows "Resumed at 30:08 · Start over". Within the last
-  30 s / 2 % it counts as finished and starts at 0:00.
+- On open the video jumps to 3 s before **home** (below; old files: `seconds`) and shows "Resumed at 30:08 · Start
+  over". Within the last 30 s / 2 % it counts as finished and starts at 0:00.
+- **`home`** (optional key, written in the same sorted style: `device`, `duration`, `home`, `seconds`, `updated`;
+  no final newline) is the player's 📍 main spot. Old files without it read fine (home = seconds). It rides along
+  with the existing writes (a change of home alone never causes a write). The New Tab progress bar, "min left"
+  and "finished" use the **furthest** of `seconds` and `home`: a detour ahead of home still counts as seen, while
+  resume goes back to home, where you were really listening.
+
+### 📍 Home and back / forward (`core/home.ts`, served to the page as `/home.js`, unit-tested)
+
+- The player keeps **home**, a time. While the video plays normally it follows the playhead (any speed: 3× is
+  continuous play, not a jump). A **big jump** — more than 20 s, from a click on a word / time / chapter / note /
+  find result, ⌘[ / ⌘], or the YouTube seek bar (any jump in the status time that playback at its rate cannot
+  explain, once it lasted ~0.4 s, so a stray 0 from the frame is ignored) — **freezes** home at the spot before
+  the jump. Z / X / arrow skips never freeze it on their own, but skips that add up to more than 20 s away from home
+  are a detour too. Playing back into home (or through it), or landing within ~3 s of it, unfreezes it.
+- While more than ~20 s from home: a 📍 pin in the transcript gutter at home's paragraph and a "📍 Home 23:14" chip
+  by the controls (click = jump home; `H` too) with a small "Make this Home" action (`Shift+H`). After ~3 min of
+  continuous listening away it reads "Make this Home?". Home never moves by itself.
+- **History**: every big jump pushes the spot it left onto a back stack (cap 30; a spot within 5 s of one already
+  there replaces it). `⌘[` back, `⌘]` forward (also View → Back / Forward), with a toast "↩ 23:14" / "↪ 5:11". Back /
+  forward add no entries; a new big jump clears forward. Jumping home with `H` is a jump, so `⌘[` returns to the
+  detour. Per tab, in memory only.
 
 ## 5. Status (shared with yaseen-docs-app — do not change the format)
 
@@ -314,6 +395,9 @@ paragraphs faded and the current one larger.
 | `Space` | play / pause |
 | `Z` / `X` | back / forward 5 s |
 | `←` / `→` | back / forward 10 s |
+| `H` | 📍 jump home (your main spot, after jumping around) |
+| `Shift+H` | make this spot Home |
+| `⌘[` / `⌘]` | back / forward through the spots you jumped from (View → Back / Forward) |
 | `N` | new note (pauses while typing; Enter saves; Shift+Enter new line; Esc cancels; resumes after). With words highlighted: a range note |
 | `F` | follow on / off ("Back to now") |
 | `Shift+F` | focus mode |

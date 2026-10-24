@@ -56,6 +56,28 @@ npm run build && npm run cli -- --make <url> --out <dir>                       #
 `--open` is a test mode: it does not touch your open tabs or Recent list. For a fully separate test
 instance add `--user-data-dir=<tmp dir> --mute --inactive`.
 
+## Agents: the `video-notes` command
+
+Several AI agents can turn the `#mochi` notes of one transcript into Mochi cards at the same time (while you keep
+taking notes). They never edit the `.md` by hand; they use `video-notes`, which locks the file for every write
+(`<md>.lock`, shared with the app) and hands each note to exactly one agent:
+
+```bash
+video-notes claim   "<file.md>" --agent a1 --count 5      # JSON: your notes + context ([] when nothing is left)
+video-notes resolve "<file.md>" --agent a1 --note <id> --done "made card \"…\" in deck Vocab"
+video-notes release "<file.md>" --agent a1                # give your claims back
+video-notes status  "<file.md>" --text                    # open / claimed by whom / expired / resolved
+```
+
+`npm run install-app` installs it as `/opt/homebrew/bin/video-notes` and `~/.local/bin/video-notes`
+(`npm run install-app -- --cli-only` installs just the command). It runs the app's bundled CLI with the app's own
+Electron as plain Node (`ELECTRON_RUN_AS_NODE=1`): no window, no dock icon, ~0.1 s per call. To try a build before
+installing: `VIDEO_NOTES_APP="$PWD/dist/Yaseen Video Notes.app" build/video-notes status <file.md>`.
+Claimed notes show "🤖 a1" in the player; the Notes tab has an "In progress" filter; right-click → Release claim.
+Details: [docs/how-it-works.md](docs/how-it-works.md#several-agents-at-once-the-video-notes-command). Each transcript
+`.md` has a one-line comment pointing agents to the skill file with the full rules
+(`~/Documents/GitHub/skills-global-yaseen/yaseen-video-notes-app/SKILL.md`); rule changes go there, not into each `.md`.
+
 ## Hotkeys
 
 | Key | Action |
@@ -67,6 +89,9 @@ instance add `--user-data-dir=<tmp dir> --mute --inactive`.
 | `Space` | play / pause |
 | `Z` / `X` | back / forward 5 s |
 | `←` / `→` | back / forward 10 s |
+| `H` | 📍 jump home (your main spot, after jumping around) |
+| `Shift+H` | make this spot Home |
+| `⌘[` / `⌘]` | back / forward through the spots you jumped from (View → Back / Forward) |
 | `N` | new note (pauses; Enter saves, Shift+Enter new line, Esc cancels). With words highlighted: a note on those words |
 | `F` | follow the video on / off |
 | `Shift+F` | focus mode |
@@ -77,5 +102,12 @@ instance add `--user-data-dir=<tmp dir> --mute --inactive`.
 | `?` | shortcuts cheat-sheet |
 
 Hotkeys work while the video has focus too, and are ignored while typing in a note or the find box.
-Right-click a note for Edit / Copy / Delete. Select words (drag, double-click) and press `N` for a note on them.
+
+**📍 Home.** Jump around freely (click a word, a chapter, a note, the seek bar): the player keeps your main spot.
+While you play normally, Home follows you; a jump of more than ~20 s freezes it where you left. A
+"📍 Home 23:14" chip by the controls and a 📍 pin in the transcript margin show it while you are away; click either
+(or press `H`) to go back. Playing back into it makes it follow again. `Shift+H` / "Make this Home" moves it to
+where you are (after ~3 min away the chip offers that; it never moves by itself). `⌘[` / `⌘]` step back / forward
+through the spots you jumped from, like a browser. Reopening a video resumes at Home.
+Right-click a note for Edit / Copy / Delete (and Release claim on a note an agent claimed). Select words (drag, double-click) and press `N` for a note on them.
 Right-click a tab for Copy YouTube Link / Copy .md Path / Show in Finder / Close Tab.

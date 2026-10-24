@@ -43,7 +43,7 @@ describe('resolved notes', () => {
     const n = parse(md)
     expect(n[4].resolved).toBe(false)
     expect(n[4].resolution).toBeNull()
-    expect(noteJSON(n[0])).toEqual({ para: 0, time: 1, text: 'point card', category: 'mochi', resolved: true, resolution: 'made the Mochi card' })
+    expect(noteJSON(n[0])).toEqual({ id: n[0].id, para: 0, time: 1, text: 'point card', category: 'mochi', resolved: true, resolution: 'made the Mochi card' })
   })
 
   it('toggling resolved changes only the tags, byte for byte (resolution lines stay)', () => {

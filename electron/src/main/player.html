@@ -203,8 +203,13 @@
   .note.mochi { border-left-color: var(--mochi); }
   .nbadge { display: inline-block; font: 600 10.5px/1.5 system-ui, sans-serif; color: var(--mochi); border: 1px solid var(--mochi);
     border-radius: 999px; padding: 0 6px; margin-right: 6px; vertical-align: 1px; white-space: nowrap; }
+  /* a note an agent claimed (video-notes claim): "🤖 a1"; an expired claim is dimmed */
+  .nbot { display: inline-block; font: 600 10.5px/1.5 system-ui, sans-serif; color: var(--ink); background: var(--hl);
+    border: 1px solid var(--line); border-radius: 999px; padding: 0 6px; margin-right: 6px; vertical-align: 1px; white-space: nowrap; }
+  .nbot.exp { opacity: .5; font-weight: 400; }
+  .item .nbot { margin: 0 4px 0 0; }
   /* resolved notes: a small ✓ chip in the transcript; expanded, the text is struck through (the resolution is not) */
-  .note .nres { display: block; margin-top: 3px; font-size: 12px; color: var(--muted); }
+  .note .nres { display: block; margin-top: 3px; font-size: 12px; color: var(--muted); white-space: pre-wrap; }
   .note .nchip { display: none; }
   .note.resolved .ntext { text-decoration: line-through; text-decoration-thickness: 1px; opacity: .6; }
   .note.resolved .nq, .note.resolved .nbadge { opacity: .55; }
@@ -238,6 +243,14 @@
   .selbtn { position: fixed; z-index: 5; font: 600 13px system-ui, sans-serif; padding: 5px 10px; border-radius: 999px;
     border: 0; background: var(--note-edge); color: #fff; cursor: pointer; box-shadow: 0 4px 14px rgba(0,0,0,.2); display: none; }
   .selbtn.show { display: block; }
+  /* 📍 home: a chip by the controls and a pin in the gutter, shown while away from home (> ~20 s) */
+  .bar .homechip { display: none; border-color: var(--accent); color: var(--ink); font-variant-numeric: tabular-nums; }
+  .bar .homechip b { font-weight: 600; }
+  .bar .sethome { display: none; color: var(--muted); font-size: 12.5px; }
+  .bar.away .homechip, .bar.away .sethome { display: inline-block; }
+  .bar .sethome.suggest { color: var(--accent); border-color: var(--accent); font-weight: 600; }
+  .p .t { position: relative; }
+  .homepin { position: absolute; left: -16px; top: 0; font: 13px/2.2 system-ui, sans-serif; cursor: pointer; }
   .back { position: fixed; right: 28px; bottom: 28px; font: 600 14px system-ui, sans-serif; padding: 10px 16px;
     border-radius: 999px; border: 0; background: var(--accent); color: #fff; cursor: pointer;
     box-shadow: 0 6px 20px rgba(0,0,0,.18); display: none; z-index: 5; }
@@ -275,6 +288,8 @@
       <button id="focusbtn" title="Focus mode: fade everything but the current paragraph (Shift+F)">Focus</button>
       <button id="addnote" title="Add a note at the current moment, or on the highlighted words (N)">💬 Add note</button>
       <button id="theme" title="Light / dark">Theme</button>
+      <button id="homechip" class="homechip" title="Jump back to your main spot (H)">📍 Home <b id="hometime"></b></button>
+      <button id="sethome" class="sethome" title="Make the current spot your Home (⇧H)">Make this Home</button>
       <button id="keysbtn" class="keysbtn" title="Keyboard shortcuts (?)">?</button>
     </div>
     <div class="panel" id="panel">
@@ -320,7 +335,10 @@
       <div class="row"><span>Play / pause</span><span><kbd>Space</kbd></span></div>
       <div class="row"><span>Back / forward 5 s</span><span><kbd>Z</kbd><kbd>X</kbd></span></div>
       <div class="row"><span>Back / forward 10 s</span><span><kbd>←</kbd><kbd>→</kbd></span></div>
-      <div class="row"><span>Jump to a word, time or chapter</span><span>click</span></div></div>
+      <div class="row"><span>Jump to a word, time or chapter</span><span>click</span></div>
+      <div class="row"><span>📍 Jump home (your main spot)</span><span><kbd>H</kbd></span></div>
+      <div class="row"><span>Make this Home</span><span><kbd>⇧H</kbd></span></div>
+      <div class="row"><span>Back / forward (jumps)</span><span><kbd>⌘[</kbd><kbd>⌘]</kbd></span></div></div>
     <div><h3>View</h3>
       <div class="row"><span>Follow the video</span><span><kbd>F</kbd></span></div>
       <div class="row"><span>Focus mode</span><span><kbd>⇧F</kbd></span></div>
@@ -333,6 +351,7 @@
   </div></div></div>
 
 <script src="/note-anchor.js"></script>
+<script src="/home.js"></script>
 <script>
 (async function () {
 const $ = id => document.getElementById(id);
@@ -393,6 +412,7 @@ DATA.paras.forEach((p, i) => {
 tx.appendChild(frag);
 
 // ---------- the YouTube player (driven through the injected script) ----------
+const HT = window.homeTracker();   // 📍 home + back / forward history, per tab, in memory
 const P = { t: 0, at: performance.now(), rate: 1, paused: true, dur: 0, ok: false, q: '', w: 0, h: 0, err: '', ad: false, seen: 0 };
 const frame = $('yt');
 const origin = location.origin;
@@ -443,6 +463,8 @@ window.addEventListener('message', e => {
         seekHold = { t: r.t, until: performance.now() + 5000 };
       } else if (!resumeDone) { resumeDone = true; resume(); }
     }
+    // 📍 home / history (core/home.ts): every status sample, once resumed, while no ad plays
+    if (!hold && resumed && m.ok && !m.ad) HT.tick(m.t, m.rate, performance.now(), m.paused);
     if (askTries) { native({ type: 'reconnected', tries: askTries, ms: Math.round(performance.now() - askFirst) }); askTries = 0; }
     showConn(0);
     if (m.ok && !rateTimer && Math.abs(m.rate - speed) > 0.01 && performance.now() - lastRateFix > 500) { lastRateFix = performance.now(); cmd({ rate: speed }); }
@@ -552,8 +574,10 @@ $('follow').onclick = () => setFollow(!follow);
 $('theme').onclick = () => { const r = document.documentElement;
   r.dataset.theme = getComputedStyle(r).getPropertyValue('--bg').trim() === '#1c1c1f' ? 'light' : 'dark'; };
 
-function seekTo(s, play) {
+// kind: 'seek' (a jump: > 20 s freezes home + history, smaller = a skip), 'nav' (back / forward), 'none' (resume)
+function seekTo(s, play, kind) {
   s = Math.max(0, P.dur ? Math.min(s, P.dur - 0.5) : s);
+  if (resumed && kind !== 'none') HT.seek(now(), s, performance.now(), kind || 'seek');
   cmd(play ? { seek: s, play: true } : { seek: s });
   P.t = s; P.at = performance.now(); if (play) P.paused = false;
   clearTimeout(seekTo.idle); seekTo.idle = setTimeout(() => sendPos(false), 2000);   // after the seeking stops
@@ -561,21 +585,64 @@ function seekTo(s, play) {
 
 // ---------- resume where I left off (saved next to the transcript by the app) ----------
 let resumed = false;
-function sendPos(playing) { if (resumed) native({ type: 'pos', t: +now().toFixed(1), dur: DATA.duration || P.dur, playing, ok: P.ok, resumed }); }
+function sendPos(playing) { if (resumed) native({ type: 'pos', t: +now().toFixed(1), home: HT.view(now()).home, dur: DATA.duration || P.dur, playing, ok: P.ok, resumed }); }
 setInterval(() => { if (!P.paused) sendPos(true); }, 10000);   // the app writes at most once a minute while playing
 async function resume() {
   try {
+    // resume at 📍 home (the main spot; old progress files: where the playhead was)
     const pos = await getJSON('/api/position'), dur = pos.dur || DATA.duration || P.dur;
-    const finished = dur > 0 && pos.t >= dur - Math.max(30, dur * 0.02);
-    if (pos.t > 5 && !finished) {
-      const at = Math.max(0, pos.t - 3);
-      seekTo(at, false); setFollow(true); setPos(at + 0.1); recenter();
-      actionToast('Resumed at ' + fmt(pos.t) + (pos.device ? ' (from ' + pos.device + ')' : ''), 'Start over', () => { seekTo(0, false); setFollow(true); recenter(); });
-      native({ type: 'resumed', t: pos.t, device: pos.device });
-    }
+    const home = typeof pos.home === 'number' ? pos.home : pos.t;
+    const finished = dur > 0 && home >= dur - Math.max(30, dur * 0.02);
+    if (home > 5 && !finished) {
+      const at = Math.max(0, home - 3);
+      HT.makeHome(home, performance.now(), at);
+      seekTo(at, false, 'none'); setFollow(true); setPos(at + 0.1); recenter();
+      actionToast('Resumed at ' + fmt(home) + (pos.device ? ' (from ' + pos.device + ')' : ''), 'Start over', () => {
+        HT.makeHome(0, performance.now(), 0); seekTo(0, false, 'none'); setFollow(true); recenter(); });
+      native({ type: 'resumed', t: home, seconds: pos.t, device: pos.device });
+    } else HT.makeHome(0, performance.now(), 0);
   } catch (e) {}
   resumed = true;
 }
+// ---------- 📍 home (main spot) + back / forward history (core/home.ts, served as /home.js) ----------
+function goHome() {
+  const v = HT.view(now());
+  if (v.home === null) return;
+  if (!v.away) { toast('📍 You are home (' + fmt(v.home) + ')'); return; }
+  seekTo(v.home - 1, !P.paused); setFollow(true);   // a jump: ⌘[ goes back to where you were
+  toast('📍 Home ' + fmt(v.home)); native({ type: 'home-jump', home: v.home });
+}
+function makeHome() {
+  const t = now(); HT.makeHome(t, performance.now()); updateHome();
+  toast('📍 Home set to ' + fmt(t)); native({ type: 'home-set', home: +t.toFixed(1) });
+}
+function histGo(dir) {
+  const t = dir < 0 ? HT.back(now(), performance.now()) : HT.forward(now(), performance.now());
+  if (t === null) { toast(dir < 0 ? 'No earlier spot' : 'No later spot'); return; }
+  seekTo(t, !P.paused, 'none'); setFollow(true);   // the tracker already moved (no new history entry)
+  toast((dir < 0 ? '↩ ' : '↪ ') + fmt(t)); native({ type: dir < 0 ? 'history-back' : 'history-forward', t: +t.toFixed(1) });
+}
+const homePin = document.createElement('span'); homePin.className = 'homepin'; homePin.textContent = '📍'; homePin.title = 'Home — click to jump back (H)';
+homePin.addEventListener('click', e => { e.stopPropagation(); goHome(); });
+homePin.addEventListener('mousedown', e => e.stopPropagation());
+let homeShown = '';
+function updateHome() {
+  const v = HT.view(now()), bar = document.querySelector('.bar');
+  const away = resumed && v.home !== null && v.away;
+  const key = away ? Math.round(v.home) + (v.suggest ? 's' : '') : '';
+  if (key === homeShown) return; homeShown = key;
+  bar.classList.toggle('away', away);
+  if (!away) { homePin.remove(); return; }
+  $('hometime').textContent = fmt(v.home);
+  $('sethome').textContent = v.suggest ? 'Make this Home?' : 'Make this Home';
+  $('sethome').classList.toggle('suggest', v.suggest);
+  const p = Math.max(0, lastLE(starts, v.home));
+  paraEls[p].querySelector('.t').prepend(homePin);
+  native({ type: 'home-away', home: v.home, suggest: v.suggest, back: v.back.length, forward: v.forward.length });
+}
+setInterval(updateHome, 250);
+$('homechip').onclick = goHome;
+$('sethome').onclick = makeHome;
 function actionToast(msg, label, fn) {
   const t = $('atoast'); t.querySelector('span').textContent = msg;
   const b = t.querySelector('button'); b.textContent = label; b.onclick = () => { t.classList.remove('show'); fn(); };
@@ -690,8 +757,8 @@ function showPanel(which) {
     // one-click filter: All · General · Mochi | Open · Resolved (with counts); resolved notes keep their time order
     const bar = document.createElement('div'); bar.className = 'nfilter';
     const FILTERS = { all: () => true, general: n => n.category === 'general', mochi: n => n.category === 'mochi',
-                      open: n => !n.resolved, resolved: n => n.resolved };
-    [['all', 'All'], ['general', 'General'], ['mochi', '🃏 Mochi'], null, ['open', 'Open'], ['resolved', '✓ Resolved']].forEach(f => {
+                      open: n => !n.resolved, progress: n => !!(n.claim && !n.claim.expired), resolved: n => n.resolved };
+    [['all', 'All'], ['general', 'General'], ['mochi', '🃏 Mochi'], null, ['open', 'Open'], ['progress', '🤖 In progress'], ['resolved', '✓ Resolved']].forEach(f => {
       if (!f) { const sep = document.createElement('span'); sep.className = 'sep'; bar.appendChild(sep); return; }
       const [k, label] = f;
       const b = document.createElement('button'); b.className = k === noteFilter ? 'on' : ''; b.dataset.f = k;
@@ -702,7 +769,8 @@ function showPanel(which) {
     box.appendChild(bar);
     const shown = notesList.filter(FILTERS[noteFilter] || FILTERS.all);
     if (!shown.length) { const e = document.createElement('div'); e.className = 'empty';
-      e.textContent = { mochi: 'No Mochi notes.', general: 'No general notes.', open: 'No open notes.', resolved: 'No resolved notes.' }[noteFilter] || 'No notes.';
+      e.textContent = { mochi: 'No Mochi notes.', general: 'No general notes.', open: 'No open notes.', progress: 'No notes in progress (claimed by an agent).',
+                        resolved: 'No resolved notes.' }[noteFilter] || 'No notes.';
       box.appendChild(e); }
     shown.forEach(n => {
       const it = document.createElement('div'); it.className = 'item' + (n.resolved ? ' res' : '');
@@ -710,8 +778,9 @@ function showPanel(which) {
       it.children[0].textContent = fmt(n.t) + (n.end != null ? '–' + fmt(n.end) : '');
       it.querySelector('.ix').textContent = (n.category === 'mochi' ? '🃏 ' : '') + n.text;
       if (n.resolved) { const c = document.createElement('span'); c.className = 'ick'; c.textContent = '✓'; c.title = 'Resolved'; it.children[1].prepend(c); }
+      if (n.claim) it.children[1].prepend(botBadge(n.claim));
       if (n.quote) { const q = document.createElement('span'); q.className = 'iq'; q.textContent = '“' + n.quote + '”'; it.children[1].appendChild(q); }
-      if (n.resolution) { const r = document.createElement('span'); r.className = 'ires'; r.textContent = '↳ resolved: ' + n.resolution; it.children[1].appendChild(r); }
+      if (n.resolution) { const r = document.createElement('span'); r.className = 'ires'; r.textContent = resolutionText(n); it.children[1].appendChild(r); }
       it.addEventListener('contextmenu', e => noteMenu(e, n));
       it.onclick = () => {
         seekTo(n.t - 0.3, true);
@@ -897,6 +966,16 @@ function restoreView(v) {
   }
 }
 const tint = (list, on, cls) => list.forEach(([p, j]) => wordEls[p][j].classList.toggle(cls || 'cover', on));
+// "🤖 a1" on a note an agent claimed (video-notes claim); dimmed "(expired)" once the lease ran out
+function botBadge(c) {
+  const b = document.createElement('span'); b.className = 'nbot' + (c.expired ? ' exp' : '');
+  b.textContent = '🤖 ' + c.agent + (c.expired ? ' (expired)' : '');
+  b.title = (c.expired ? 'Claim expired — another agent may take it' : 'An agent is working on this note') + ' (claimed ' + c.at + ')';
+  return b;
+}
+// one "↳ resolved[ by a1]: …" per resolution line (old lines name no agent)
+const resolutionText = n => n.resolution.split('\n').map((l, i) =>
+  '↳ resolved' + (n.resolutionBy && n.resolutionBy[i] ? ' by ' + n.resolutionBy[i] : '') + ': ' + l).join('\n');
 function renderNotes(list) {
   const sig = JSON.stringify(list); if (sig === notesSig) return; notesSig = sig;
   if (noteCount !== list.length) native({ type: 'notes', count: list.length });
@@ -920,7 +999,8 @@ function renderNotes(list) {
     if (category === 'mochi') { el.classList.add('mochi'); const b = document.createElement('span'); b.className = 'nbadge'; b.textContent = '🃏 Mochi'; el.appendChild(b); }
     const body = document.createElement('span'); body.className = 'ntext'; body.textContent = n.text; el.appendChild(body);
     if (n.quote) { const q = document.createElement('span'); q.className = 'nq'; q.textContent = '“' + n.quote + '”'; el.appendChild(q); }
-    if (n.resolution) { const r = document.createElement('span'); r.className = 'nres'; r.textContent = '↳ resolved: ' + n.resolution; el.appendChild(r); }
+    if (n.claim) el.insertBefore(botBadge(n.claim), body);
+    if (n.resolution) { const r = document.createElement('span'); r.className = 'nres'; r.textContent = resolutionText(n); el.appendChild(r); }
     const resolved = !!n.resolved;
     if (resolved) {   // a small ✓ chip; click to see the note
       el.classList.add('resolved', 'collapsed'); ts.textContent = '✓ ' + ts.textContent.replace('💬 ', '');
@@ -948,7 +1028,7 @@ function renderNotes(list) {
     const box = cardsAt(n.para, a.anchor, true);
     box.insertBefore(el, box.querySelector(':scope > .composer'));
     const entry = { t, end: n.end, text: n.text, quote: n.quote, el, para: n.para, index, time: n.time ?? null, category,
-                    resolved, resolution: n.resolution || null };
+                    resolved, resolution: n.resolution || null, resolvedBy: n.resolvedBy || null, resolutionBy: n.resolutionBy || null, claim: n.claim || null, id: n.id };
     el.addEventListener('contextmenu', e => noteMenu(e, entry));
     notesList.push(entry);
   });
@@ -1052,6 +1132,7 @@ function noteMenu(e, n) {
    n.category === 'mochi'
      ? ['Make General', async () => { if (await noteChange('category', n, { category: 'general' })) toast('Note is General'); }]
      : ['Make Mochi', async () => { if (await noteChange('category', n, { category: 'mochi' })) toast('Note is 🃏 Mochi'); }],
+   ...(n.claim ? [['Release claim (🤖 ' + n.claim.agent + ')', async () => { if (await noteChange('release', n)) toast('Claim released'); }]] : []),
    n.resolved
      ? ['Reopen', async () => { if (await noteChange('resolved', n, { resolved: false })) toast('Note reopened'); }]
      : ['Mark resolved', async () => { if (await noteChange('resolved', n, { resolved: true })) toast('Note marked resolved'); }],
@@ -1170,6 +1251,7 @@ function handleKey(key, forwarded, repeat, shift) {
   if (k === '?') { native({ type: 'key', key: '?', forwarded: !!forwarded }); toggleSheet(); return true; }
   if (sheetOpen()) { if (k === 'escape') { toggleSheet(false); return true; } return false; }
   if (k === 'f' && shift) { native({ type: 'key', key: 'shift+f', forwarded: !!forwarded }); setFocus(!document.body.classList.contains('focus')); return true; }
+  if (k === 'h' && shift) { native({ type: 'key', key: 'shift+h', forwarded: !!forwarded }); makeHome(); return true; }
   const act = {
     ' ': togglePlay,
     s: () => setSpeed(r - 0.1), d: () => setSpeed(r + 0.1),
@@ -1180,6 +1262,7 @@ function handleKey(key, forwarded, repeat, shift) {
     v: () => { const b = $('speed'); b.classList.toggle('hide'); savePrefs({ badgeHidden: b.classList.contains('hide') }); },
     f: () => setFollow(!follow),
     n: () => openComposer(selectedWords()),
+    h: goHome,
   }[k];
   if (!act) return false;
   native({ type: 'key', key: k, forwarded: !!forwarded, repeat: !!repeat });
@@ -1192,6 +1275,9 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && menu.classList.contains('show')) { closeMenu(); return; }
   if (e.key === 'Escape' && sheetOpen()) { toggleSheet(false); return; }
   if (e.key === 'Escape' && findOpen()) { closeFind(); return; }
+  // ⌘[ / ⌘] back / forward (the app's View menu has them too)
+  if (e.metaKey && !e.ctrlKey && !e.altKey && (e.key === '[' || e.key === ']') && !/TEXTAREA|INPUT/.test(e.target.tagName)) {
+    e.preventDefault(); histGo(e.key === '[' ? -1 : 1); return; }
   if (e.metaKey || e.ctrlKey || e.altKey || /TEXTAREA|INPUT/.test(e.target.tagName)) return;
   // Shift+←/→ (and Shift+Alt) adjust a text selection: never a seek
   if (e.shiftKey && /^Arrow/.test(e.key)) return;
@@ -1202,7 +1288,9 @@ document.addEventListener('mousedown', e => native({ type: 'click', target: e.ta
 // ---------- for the app's menus ----------
 window.FA = { pause, zoom, find: openFind, toggleFocus: () => setFocus(!document.body.classList.contains('focus')),
               state: () => ({ t: now(), paused: P.paused, rate: P.rate, speed, h: P.h, q: P.q, ok: P.ok, para: curP, word: curW }),
-              zoomToast: text => toast(text), notice: (text, ms) => toast(text, ms), reloadVideo };
+              zoomToast: text => toast(text), notice: (text, ms) => toast(text, ms), reloadVideo,
+              back: () => histGo(-1), forward: () => histGo(1), home: goHome, makeHome,
+              homeState: () => Object.assign(HT.view(now()), { t: now() }) };
 native({ type: 'ready', paras: DATA.paras.length, chapters: CHAPTERS.length });
 })();
 </script>

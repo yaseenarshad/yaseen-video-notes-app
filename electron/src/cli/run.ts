@@ -4,6 +4,7 @@ import { resolve } from 'node:path'
 import { format, make } from '../core/folderMaker'
 import * as Notes from '../core/notes'
 import { decodeSidecar, folderName, parseInfoJSON, wordCount } from '../core/transcript'
+import { AGENT_COMMANDS, AGENT_USAGE, runAgent } from './agent'
 
 export const USAGE = `USAGE:
   Yaseen Video Notes                                   Open the app.
@@ -14,7 +15,10 @@ export const USAGE = `USAGE:
   npm run cli -- <same flags>                          The same CLI as plain Node (from electron/).
 OPTIONS:
   --debug-log <path>   Write player events (time, rate, quality, keys, notes) to <path>.
-                       Same as the VIDEO_NOTES_DEBUG_LOG environment variable.`
+                       Same as the VIDEO_NOTES_DEBUG_LOG environment variable.
+
+AGENTS (the \`video-notes\` command runs this CLI without the app's window):
+${AGENT_USAGE.split('\n').slice(1).join('\n')}`
 
 const expand = (p: string): string => resolve(p.startsWith('~/') ? homedir() + p.slice(1) : p)
 /** Like Swift's `standardizedFileURL`: /private/tmp → /tmp (only the printed paths). */
@@ -27,11 +31,12 @@ export function flag(args: string[], name: string): string | null {
 
 /** True when the args ask for a CLI mode (no UI). */
 export const isCLI = (args: string[]): boolean =>
-  args.includes('--help') || args.includes('-h') || flag(args, '--make') !== null || flag(args, '--format') !== null
+  (AGENT_COMMANDS as readonly string[]).includes(args[0] ?? '') || args.includes('--help') || args.includes('-h') || flag(args, '--make') !== null || flag(args, '--format') !== null
 
 /** Runs a CLI mode and returns the exit code. */
 export async function runCLI(args: string[], out: (s: string) => void = (s) => process.stdout.write(s + '\n'),
   err: (s: string) => void = (s) => process.stderr.write(s + '\n')): Promise<number> {
+  if ((AGENT_COMMANDS as readonly string[]).includes(args[0] ?? '')) return runAgent(args, out, err)
   if (args.includes('--help') || args.includes('-h')) { out(USAGE); return 0 }
   const url = flag(args, '--make')
   if (url !== null) {

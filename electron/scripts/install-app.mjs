@@ -3,13 +3,16 @@
 // Ships a change to the user: packages the app (scripts/package.mjs → electron/dist/Yaseen Video Notes.app),
 // quits the running copy if any (it saves its tabs and positions on quit), replaces
 // /Applications/Yaseen Video Notes.app with the fresh build (a real copy made with ditto, not a symlink)
-// and opens it.
+// and opens it. It also installs the `video-notes` command (build/video-notes: the agents' CLI, run with the
+// app's Electron as plain Node, no window) as /opt/homebrew/bin/video-notes and ~/.local/bin/video-notes;
+// a location that is not writable is skipped quietly. Re-installed every time (idempotent).
+// `npm run install-app -- --cli-only` installs only the command.
 //
 // The first time (no settings under the new name yet) it also quits a running "Follow Along" (the app's
 // old name, bundle id com.yaseen.followalong) first, so its open tabs are saved before the new app copies
 // its settings on first launch.
 import { execFileSync } from 'node:child_process'
-import { existsSync, renameSync, rmSync } from 'node:fs'
+import { accessSync, chmodSync, constants, copyFileSync, existsSync, mkdirSync, renameSync, rmSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -35,6 +38,25 @@ async function quit(id) {
   if (running(id)) throw new Error(`${id} is still running after 20 s; quit it by hand and run this again.`)
 }
 
+/** Copies the video-notes shim into each bin folder (atomic: temp file + rename); skips unwritable ones quietly. */
+function installCommand() {
+  const shim = join(root, 'build/video-notes')
+  const dirs = process.env.VIDEO_NOTES_SHIM_DIRS ? process.env.VIDEO_NOTES_SHIM_DIRS.split(':') : ['/opt/homebrew/bin', join(homedir(), '.local/bin')]
+  for (const dir of dirs) {
+    try {
+      if (dir.startsWith(homedir())) mkdirSync(dir, { recursive: true })
+      accessSync(dir, constants.W_OK)
+      const dest = join(dir, 'video-notes'), tmp = `${dest}.${process.pid}.tmp`
+      copyFileSync(shim, tmp)
+      chmodSync(tmp, 0o755)
+      renameSync(tmp, dest)
+      console.log(`Installed: ${dest}`)
+    } catch { /* not writable: skip */ }
+  }
+}
+
+if (process.argv.includes('--cli-only')) { installCommand(); process.exit(0) }
+
 run(process.execPath, [join(root, 'scripts/package.mjs')])
 if (!existsSync(built)) throw new Error(`not built: ${built}`)
 
@@ -49,4 +71,5 @@ rmSync(target, { recursive: true, force: true })
 renameSync(fresh, target)
 run('codesign', ['--verify', '--deep', '--strict', target])
 console.log(`Installed: ${target}`)
+installCommand()
 run('open', [target])

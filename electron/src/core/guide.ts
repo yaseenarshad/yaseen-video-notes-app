@@ -1,7 +1,7 @@
 /**
  * The agent guide: a short, versioned HTML comment in each transcript .md, right after the header's
- * metadata list and before the `---` line that ends the header, so an agent editing the file by hand
- * follows the format. It is the only copy of this text in the code.
+ * metadata list and before the `---` line that ends the header. Since v3 it only points agents to the skill
+ * file with the full rules (`SKILL_PATH`). It is the only copy of this text in the code.
  *
  * Every parser skips HTML comment blocks in the file (`commentMask`): the example lines inside the
  * guide are never paragraphs, notes or chapters.
@@ -11,18 +11,16 @@
  * just for the guide.
  */
 
-export const GUIDE_VERSION = 2
+export const GUIDE_VERSION = 3
 
-export const GUIDE = `<!-- follow-along guide v${GUIDE_VERSION} — rules for agents editing this file (the Yaseen Video Notes app reads it)
-- Paragraph lines start with [m:ss](youtube link). Never add, remove, merge, reorder or reword them.
-- Notes go under their paragraph: > 💬 [m:ss](link&t=Ns) text
-  Note on highlighted words: > 💬 [m:ss–m:ss](link&t=Ns) text, then a last line > “quote”
-- Tags right after the time: #mochi = make a flashcard from this note; #resolved = done. No #resolved = open.
-- Only work on notes WITHOUT #resolved. When done: add #resolved (keep other tags) and a line > ↳ resolved: what you did.
-- Hand-typed notes: > 💬 text (no time) under the paragraph.
-- Never delete the user's note text. Leave the header, ## chapter headings and frontmatter alone.
-Full spec: docs/how-it-works.md in github.com/yaseenarshad/yaseen-video-notes-app
--->`
+/** Where the full agent rules live (a skill file kept by the user; not in each .md, so files never need a backfill). */
+export const SKILL_PATH = '/Users/yasin/Documents/GitHub/skills-global-yaseen/yaseen-video-notes-app/SKILL.md'
+
+/**
+ * Since v3 the guide is a one-line pointer: agent rules change in the skill file, never in each .md. The
+ * `follow-along guide vN` marker stays, so older guides (v1, v2: the full rules) are found and replaced in place.
+ */
+export const GUIDE = `<!-- follow-along guide v${GUIDE_VERSION} — this file is managed by the Yaseen Video Notes app. Agents: before editing it, read ${SKILL_PATH} — and read it again fresh if some time has passed since you last read it, because it changes; don't rely on a remembered copy. -->`
 
 const reGuideStart = /^<!--\s*follow-along guide v(\d+)\b/
 

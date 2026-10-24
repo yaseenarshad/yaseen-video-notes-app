@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { deleteNote, editNote, note, paragraphCount, parse, restoreNote } from './notes'
-import { left, PROGRESS_FILE, readProgress, writeProgress, finished } from './progress'
+import { fraction, furthest, homeOf, left, PROGRESS_FILE, readProgress, writeProgress, finished } from './progress'
 
 /** Paragraph 0 has a single-line note, a multi-line note, a range note with a quote and a hand-typed note; paragraph 1 has one note. */
 const md = `---
@@ -116,6 +116,30 @@ describe('ProgressTests', () => {
       const text = readFileSync(join(dir, PROGRESS_FILE), 'utf8')
       const device = JSON.parse(text).device as string
       expect(text).toBe(`{\n  "device" : ${JSON.stringify(device).replaceAll('/', '\\/')},\n  "duration" : 8071,\n  "seconds" : 853,\n  "updated" : "2026-10-18T02:11:43Z"\n}`)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('home: written in key order (duration, home, seconds), same style; old files without it read as seconds', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'fa-pos-'))
+    try {
+      writeProgress(dir, 2400.6, 8071, new Date(Date.UTC(2026, 9, 18, 2, 11, 43)), 853.4)
+      const text = readFileSync(join(dir, PROGRESS_FILE), 'utf8')
+      const device = JSON.parse(text).device as string
+      expect(text).toBe(`{\n  "device" : ${JSON.stringify(device).replaceAll('/', '\\/')},\n  "duration" : 8071,\n  "home" : 853,\n  "seconds" : 2401,\n  "updated" : "2026-10-18T02:11:43Z"\n}`)
+      const p = readProgress(dir)!
+      expect([p.home, p.seconds, homeOf(p), furthest(p)]).toEqual([853, 2401, 853, 2401])
+      // New Tab: progress / min left from the furthest of the two
+      expect(Math.trunc(left(p))).toBe(8071 - 2401)
+      expect(fraction(p)).toBeCloseTo(2401 / 8071)
+      // home ahead of seconds (jumped back to check something, then quit): furthest is home
+      writeProgress(dir, 100, 8071, new Date(), 8060)
+      expect(finished(readProgress(dir)!)).toBe(true)
+      // an old file (no home)
+      writeFileSync(join(dir, PROGRESS_FILE), '{\n  "duration" : 6271,\n  "seconds" : 1808,\n  "updated" : "2026-10-17T18:02:11Z"\n}')
+      const old = readProgress(dir)!
+      expect([old.home, homeOf(old), furthest(old), old.device]).toEqual([null, 1808, 1808, null])
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }

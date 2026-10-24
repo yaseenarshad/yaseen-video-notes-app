@@ -26,13 +26,19 @@ npm run typecheck
 npm run package                               # → electron/dist/Yaseen Video Notes.app (bundle id com.yaseen.videonotes, signed)
 npm run install-app                           # package + quit the running app + replace /Applications/Yaseen Video Notes.app + open it
 npm run cli -- --make <url> --out <dir>       # headless folder creation (plain Node; needs `npm run build` first)
+npm run cli -- status <md> --text             # the agents' CLI (claim / resolve / release / status) as plain Node
+VIDEO_NOTES_APP="$PWD/dist/Yaseen Video Notes.app" build/video-notes status <md>   # the video-notes shim against a dist build
 "dist/Yaseen Video Notes.app/Contents/MacOS/Yaseen Video Notes" --make <url> --out <dir>      # same CLI from the packaged app
 "dist/Yaseen Video Notes.app/Contents/MacOS/Yaseen Video Notes" --open <folder> --debug-log <file>   # one video, event log
 ```
 
 **Shipping a change to the user:** `npm run install-app` (`scripts/install-app.mjs`). It packages, quits the running
 installed copy (`com.yaseen.videonotes`; waits for it to exit), replaces `/Applications/Yaseen Video Notes.app` with
-the fresh build (copied with `ditto`, not a symlink) and opens it. The first time it also quits a running old
+the fresh build (copied with `ditto`, not a symlink) and opens it. It also installs the `video-notes` command
+(`build/video-notes`) as `/opt/homebrew/bin/video-notes` and `~/.local/bin/video-notes` (skips a location that is
+not writable; `-- --cli-only` installs only the command). The shim runs
+`ELECTRON_RUN_AS_NODE=1 "<app>/Contents/MacOS/Yaseen Video Notes" "<app>/Contents/Resources/app.asar/out/main/cli.js"`
+(no window, no dock icon, ~0.1 s). The first time it also quits a running old
 "Follow Along" (`com.yaseen.followalong`) so its tabs are saved before the new app copies its settings.
 Environment variables are `VIDEO_NOTES_*` (`DEBUG_LOG`, `USER_DATA`, `MUTE`, `NO_IMPORT`); the old `FOLLOW_ALONG_*` names still work.
 
@@ -47,15 +53,22 @@ Do not commit unless asked.
 - `core/` — plain Node, no Electron; every file format lives here and is unit-tested
   - `captions.ts` — WebVTT → words with times (rolling auto-captions, manual captions, `>>` turns)
   - `transcript.ts` — paragraphs, chapters, `.md` header/body, sidecar, slug, YouTube id
-  - `notes.ts` — note parse / insert / edit / delete / restore / category; `atomic.ts` — atomic file writes
-  - `guide.ts` — the agent guide comment written into each `.md` (the only copy of its text) + HTML-comment masking
+  - `notes.ts` — note parse / insert / edit / delete / restore / category / claim tags / note ids, and `changeFile`
+    (locked read-change-write of a transcript); `atomic.ts` — atomic file writes
+  - `fileLock.ts` — the `<md>.lock` every writer of a transcript takes (O_EXCL, retry ~10 s, stale after 30 s or dead pid)
+  - `claims.ts` — the agents' claim / resolve / release / status (pure text functions + locked file versions, note context)
+  - `guide.ts` — the agent guide comment written into each `.md` (the only copy of its text; since v3 a one-line pointer
+    to the agent skill file) + HTML-comment masking
   - `noteAnchor.ts` — where a note card shows in the player (after the word it is about); self-contained,
     served to the page as `/note-anchor.js` via `toString()`, so keep it free of imports and outside helpers
   - `migrate.ts` — first launch under the new name: copies the old `Follow Along/settings.json` once (read-only on the old folder)
   - `folderMaker.ts` — yt-dlp runner (one caption track, 429 retries, self-heal), make / reuse / set up folders, New Tab folder list
   - `ytdlpUpdate.ts` — keeps yt-dlp up to date: version age, update method by install path (brew / pip / -U),
     one update at a time and never during a download, self-heal after a failed download
-  - `status.ts` — per-video status in the yaseen-docs-app format; `progress.ts` — the resume file
+  - `status.ts` — per-video status in the yaseen-docs-app format; `progress.ts` — the resume file (`seconds` + optional
+    `home`; resume at home, New Tab progress from the furthest of the two)
+  - `home.ts` — 📍 home (main spot) + back / forward history logic; self-contained, served as `/home.js` via
+    `toString()` like `noteAnchor.ts` (no imports or outside helpers)
   - `text.ts` — Swift-compatible whitespace / trimming / number parsing (byte-identical output)
   - `*.test.ts` — the ported Swift unit tests (+ `fixtures.ts`)
 - `main/` — the Electron main process
@@ -67,7 +80,8 @@ Do not commit unless asked.
   - `injected.js` — JS injected into the YouTube iframe (rate, seek, status, keys)
 - `preload/` — `shell.ts` (window.fa, typed IPC) and `player.ts` (window.faNative.post)
 - `renderer/` — the shell: `TabBar.tsx` (the yaseen-docs-app tab bar look), `NewTab.tsx` (Finder-style New Tab page)
-- `cli/` — the CLI (`run.ts`, used by both the app binary and `cli.js`)
+- `cli/` — the CLI (`run.ts`, used by both the app binary and `cli.js`; `agent.ts` = `claim | resolve | release | status`)
+- `build/video-notes` — the `video-notes` shim (installed by install-app)
 - `scripts/` — `package.mjs` (packaging + signing), `install-app.mjs` (package + install into /Applications + open)
 
 ## Rules that must not break
@@ -82,22 +96,35 @@ Do not commit unless asked.
    `> 💬 [m:ss–m:ss](url&t=STARTs) text` + last line `> “quote”` — the quote is the exact selected text when ≤ 15
    words, else first 6 + ` … ` + last 6; a range inside one second is written as a single `[m:ss]`. Hand-typed `> 💬 text` (no time) belongs to the paragraph above.
    **Tags** right after the time link (or right after `> 💬 ` with no time), space-separated, any order and case
-   when read: `#mochi` = make a flashcard from this note (untagged = general); `#resolved` = done (untagged = open).
-   Written lowercase, `#mochi` before `#resolved`, e.g. `> 💬 [m:ss](url&t=Ns) #mochi #resolved text`. Never write
-   `#general` / `#open`. **Resolution lines** `> ↳ resolved: what was done` (written by agents) go after the note
-   text and before the quote line (last line when there is no quote). Tags and resolution lines are not note text
-   (edit/delete/toggle matching compares the text without them); edits keep them; toggles change only the tags.
+   when read: `#mochi` = make a flashcard from this note (untagged = general); `#claimed:<agent>@<ISO UTC minute>`
+   (e.g. `#claimed:a1@2026-10-23T14:30Z`, agent = `[a-z0-9-]{1,24}`) = an agent works on it, expired after the
+   lease (30 min default) and then claimable again; `#resolved` = done (untagged = open). Written lowercase in the
+   order `#mochi #claimed:… #resolved`; never both claimed and resolved (resolving drops the claim). Never write
+   `#general` / `#open`. **Resolution lines** `> ↳ resolved by <agent>: what was done` (older: `> ↳ resolved: …`,
+   still read) go after the note text and before the quote line (last line when there is no quote). Tags and
+   resolution lines are not note text (edit/delete/toggle matching compares the text without them); edits keep
+   them; toggles change only the tags. **Note id** = short hash of paragraph index + start time + text (no tags /
+   resolution / quote): tag changes keep it, a text edit changes it.
    Frontmatter (`---\nid: YAS-NNN\n---`) may be added above `# Title` by another tool and must be tolerated.
    **Agent guide:** a `<!-- follow-along guide vN … -->` comment after the header list, before the header's `---`
-   (`core/guide.ts`). Every parser skips HTML comment blocks (`commentMask`). It is written into new folders and
+   (`core/guide.ts`). Since v3 it is ONE line pointing agents to the skill file with the full agent rules,
+   `/Users/yasin/Documents/GitHub/skills-global-yaseen/yaseen-video-notes-app/SKILL.md` (outside this repo, kept by
+   the user): **agent-rule changes go in that skill, never into each .md** (no backfills). Only a change to the
+   pointer itself bumps the version. Every parser skips HTML comment blocks (`commentMask`). It is written into new folders and
    setup conversions; an existing file gets it (or a newer version, replaced in place, exactly one) only when the
    app writes that file anyway (note save/edit/delete/toggle, status write) — never a write just for the guide.
 4. **Atomic writes** for every file the app changes (`atomicWrite`: temp file in the same folder + rename).
    Note edits/deletes check that the note's text in the file still matches what the player showed (409 otherwise).
+   **Every write to a transcript .md runs under its lock** (`withFileLock` / `changeFile`: `<md>.lock` next to it,
+   O_EXCL, pid + host + time): read fresh, change, `atomicWrite`, unlock in `finally`. The app and the agents'
+   `video-notes` CLI share it; never write a transcript outside it, and never nest it (it is not re-entrant).
+   Agents never hand-edit the .md: `video-notes claim | resolve | release | status` (exit codes 0 / 2 usage /
+   3 not owner or note gone / 4 lock timeout).
 5. **Never rewrite a user's file silently.** A plain transcript from another tool is reformatted only after the user
    says yes, and the original is kept as `<slug>.original.md`. Existing notes are never removed.
 6. **`.follow-along.json` is written once** (at creation / setup) — it is big and the vault is synced to git.
-   The resume spot lives in the tiny `.follow-along-progress.json` next to it (synced with the vault, so it works
+   The resume spot lives in the tiny `.follow-along-progress.json` next to it (`home` = where to resume, optional:
+   old files without it read as `seconds`; byte-pinned by tests) (synced with the vault, so it works
    across computers) and is written rarely (pause, seek, tab switch, close, quit; at most once a minute while
    playing; not if it moved < 5 s) to keep git quiet.
 7. **Status format is shared with yaseen-docs-app — do not change it.** Column in the parent folder's `.folder.md`

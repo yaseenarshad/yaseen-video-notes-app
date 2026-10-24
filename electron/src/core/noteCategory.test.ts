@@ -40,8 +40,8 @@ describe('note categories', () => {
   it('old untagged notes are general, in the JSON too', () => {
     const notes = parse(md)
     expect(notes.slice(3).map((n) => n.category)).toEqual(['general', 'general', 'general'])
-    expect(noteJSON(notes[3])).toEqual({ para: 0, time: 6, text: 'plain old note', category: 'general', resolved: false })
-    expect(noteJSON(notes[1])).toEqual({ para: 0, time: 2, end: 5, text: 'range card\nsecond line', quote: 'First paragraph.', category: 'mochi', resolved: false })
+    expect(noteJSON(notes[3])).toEqual({ id: notes[3].id, para: 0, time: 6, text: 'plain old note', category: 'general', resolved: false })
+    expect(noteJSON(notes[1])).toEqual({ id: notes[1].id, para: 0, time: 2, end: 5, text: 'range card\nsecond line', quote: 'First paragraph.', category: 'mochi', resolved: false })
   })
 
   it('a tag alone is a mochi note with empty text', () => {

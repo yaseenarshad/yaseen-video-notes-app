@@ -5,10 +5,11 @@ import { homedir, tmpdir } from 'node:os'
 import { basename, dirname, extname, join } from 'node:path'
 import { parseVTT } from './captions'
 import { atomicWrite } from './atomic'
+import { isLockFile, withFileLock } from './fileLock'
 import { FollowAlongError, YTDLPError } from './errors'
 import { healAfterFailure, toolEnv, withSelfHeal } from './ytdlpUpdate'
 import * as Notes from './notes'
-import { fraction, finished, readProgress, type Progress } from './progress'
+import { fraction, finished, furthest, readProgress, type Progress } from './progress'
 import { trimWS } from './text'
 import { DEFAULT_OPTIONS, parentInfo, value as statusValue } from './status'
 import { ensureGuide, withoutComments } from './guide'
@@ -154,7 +155,8 @@ export function pickVTT(dir: string, id: string): string | null {
 export function markdownFile(folder: string): string | null {
   const files = list(folder).filter((f) => {
     const n = basename(f)
-    return extname(f) === '.md' && !n.startsWith('.') && !n.endsWith('.original.md') && !isDir(f)
+    // never a lock file (`<md>.lock`, held while a writer changes the .md)
+    return extname(f) === '.md' && !n.startsWith('.') && !n.endsWith('.original.md') && !isLockFile(n) && !isDir(f)
   })
   const name = basename(folder)
   const s = name.length > 6 && /^\d\d-\d\d-/.test(name) ? name.slice(6) : name
@@ -236,7 +238,7 @@ export async function make(input: string, parent: string, opts: { date?: Date; a
   const folder = join(parent, name)
   mkdirSync(folder, { recursive: true })
   const md = join(folder, slug(info.title) + '.md')
-  atomicWrite(md, made.markdown)
+  withFileLock(md, () => atomicWrite(md, made.markdown))
   const side = join(folder, SIDECAR_FILE)
   atomicWrite(side, encodeSidecar(made.sidecar))
   progress(`Created ${name} (${made.paragraphs.length} paragraphs)`)
@@ -268,12 +270,16 @@ export async function ensure(path: string, opts: { allowFormat?: boolean; progre
   const { info, vtt } = await download(id, progress)
   const made = format(info, vtt)
   if (count === 0) {
-    // Keep the original next to it (never overwrite an earlier backup).
-    const backup = backupPath(mdPath)
-    if (!existsSync(backup)) copyFileSync(mdPath, backup)
-    // Keep everything above the header's "---" (frontmatter, title, fields); replace the plain body.
-    const head = headPart(md) ?? header(info)
-    atomicWrite(mdPath, ensureGuide(head + '\n' + body(made.paragraphs, info.id, made.sidecar.chapters ?? [])))
+    // Under the file lock, and only if the file did not change during the download.
+    withFileLock(mdPath, () => {
+      if (readFileSync(mdPath, 'utf8') !== md) throw new FollowAlongError(`${basename(mdPath)} changed while the captions were downloading; try again.`)
+      // Keep the original next to it (never overwrite an earlier backup).
+      const backup = backupPath(mdPath)
+      if (!existsSync(backup)) copyFileSync(mdPath, backup)
+      // Keep everything above the header's "---" (frontmatter, title, fields); replace the plain body.
+      const head = headPart(md) ?? header(info)
+      atomicWrite(mdPath, ensureGuide(head + '\n' + body(made.paragraphs, info.id, made.sidecar.chapters ?? [])))
+    })
     progress(`Formatted the transcript in ${basename(mdPath)}`)
   } else if (count !== made.paragraphs.length) {
     throw new FollowAlongError(`${basename(mdPath)} has ${count} paragraphs but the captions make ${made.paragraphs.length}, so the word timing would not line up.`)
@@ -388,11 +394,11 @@ export function entry(d: string): FolderEntry | null {
 /** The video folders in `parent`, newest first. */
 export function listFolders(parent: string): FolderEntry[] {
   return list(parent)
-    .filter((d) => isDir(d) && !basename(d).startsWith('.'))
+    .filter((d) => isDir(d) && !basename(d).startsWith('.') && !isLockFile(basename(d)))
     .map(entry)
     .filter((e): e is FolderEntry => e !== null)
     .sort((a, b) => (a.date !== b.date ? b.date - a.date : b.modified - a.modified))
 }
 
-export const started = (e: FolderEntry): boolean => (e.progress?.seconds ?? 0) > 5
+export const started = (e: FolderEntry): boolean => (e.progress ? furthest(e.progress) : 0) > 5
 export const inProgress = (e: FolderEntry): boolean => e.ready && started(e) && e.progress !== null && !e.finished

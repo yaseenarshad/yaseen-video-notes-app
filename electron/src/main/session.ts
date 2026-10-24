@@ -1,9 +1,9 @@
 import { clipboard, shell, WebContentsView, webFrameMain, type WebFrameMain } from 'electron'
 import { readFileSync, statSync } from 'node:fs'
-import { atomicWrite as atomicWriteText } from '../core/atomic'
-import { device, readProgress, writeProgress } from '../core/progress'
-import { addNote, deleteNote, editNote, NoteChanged, noteJSON, parse as parseNotes, setCategory, setResolved, type NoteCategory } from '../core/notes'
-import { ensureGuide } from '../core/guide'
+import { device, homeOf, readProgress, writeProgress } from '../core/progress'
+import { homeTracker } from '../core/home'
+import { addNote, changeFile, deleteNote, editNote, NoteChanged, noteJSON, parse as parseNotes, releaseClaimAt, setCategory, setResolved, type Note, type NoteCategory } from '../core/notes'
+import { LockTimeout } from '../core/fileLock'
 import { noteAnchor } from '../core/noteAnchor'
 import { advanceStatus } from '../core/status'
 import { decodeSidecar, type Sidecar } from '../core/transcript'
@@ -16,6 +16,11 @@ import INJECTED from './injected.js?raw'
 
 // Where a note card goes in the transcript: the same function the unit tests check, served to the page.
 const NOTE_ANCHOR_JS = `window.noteAnchor = (${noteAnchor.toString()});\n`
+// The 📍 home / back-forward logic (core/home.ts, unit-tested there), served the same way.
+const HOME_JS = `window.homeTracker = (${homeTracker.toString()});\n`
+
+/** The notes as JSON for the page (claims carry `expired`, computed now). */
+const notesForPage = (notes: Note[]): Record<string, unknown>[] => { const now = Date.now(); return notes.map((n) => noteJSON(n, now)) }
 
 const EMBED = /^https:\/\/(www\.)?(youtube\.com|youtube-nocookie\.com)\/embed\//
 
@@ -33,8 +38,8 @@ export class PlayerSession {
   readonly sidecar: Sidecar
   readonly view: WebContentsView
   private server: LocalServer
-  private notesCache: { mtime: number; size: number; json: string } | null = null
-  private lastPos: { t: number; dur: number } | null = null
+  private notesCache: { mtime: number; size: number; minute: number; json: string } | null = null
+  private lastPos: { t: number; dur: number; home: number | null } | null = null
   private markedWatched = false
   private written: { t: number; at: number } | null = null
   private scan: NodeJS.Timeout | null = null
@@ -153,6 +158,8 @@ export class PlayerSession {
         return text(PLAYER_HTML, 200, 'text/html; charset=utf-8')
       case 'GET /note-anchor.js':
         return text(NOTE_ANCHOR_JS, 200, 'text/javascript; charset=utf-8')
+      case 'GET /home.js':
+        return text(HOME_JS, 200, 'text/javascript; charset=utf-8')
       case 'GET /data.json':
         try { return { status: 200, type: 'application/json; charset=utf-8', body: readFileSync(this.transcript.sidecar) } } catch { return json({ error: 'no sidecar' }, 500) }
       case 'GET /api/notes':
@@ -163,12 +170,14 @@ export class PlayerSession {
       case 'POST /api/notes/edit':
       case 'POST /api/notes/category':
       case 'POST /api/notes/resolved':
+      case 'POST /api/notes/release':
         return this.changeNote(req.path, req.body)
       case 'GET /api/position': {
         // read fresh: another computer may have moved it (the vault syncs)
         const p = readProgress(this.transcript.folder)
         const other = p?.device && p.device !== device() ? p.device : '' // named only when it was another computer
-        return json({ t: p?.seconds ?? 0, dur: p?.duration ?? 0, device: other })
+        // home: where to resume (the 📍 main spot; old files: seconds)
+        return json({ t: p?.seconds ?? 0, home: p ? homeOf(p) : 0, dur: p?.duration ?? 0, device: other })
       }
       case 'GET /api/prefs':
         return json(Settings.playerPrefs)
@@ -185,12 +194,14 @@ export class PlayerSession {
     const path = this.transcript.markdown
     let mtime = Date.now(), size = -1
     try { const st = statSync(path); mtime = st.mtimeMs; size = st.size } catch { /* gone */ }
+    // a claim expires with time, not with a file change: re-parse at least once a minute
+    const minute = Math.floor(Date.now() / 60_000)
     const c = this.notesCache
-    if (c && c.mtime === mtime && c.size === size) return c.json
+    if (c && c.mtime === mtime && c.size === size && c.minute === minute) return c.json
     let md = ''
     try { md = readFileSync(path, 'utf8') } catch { /* empty */ }
-    const out = JSON.stringify(parseNotes(md).map(noteJSON))
-    this.notesCache = { mtime, size, json: out }
+    const out = JSON.stringify(notesForPage(parseNotes(md)))
+    this.notesCache = { mtime, size, minute, json: out }
     return out
   }
 
@@ -205,8 +216,9 @@ export class PlayerSession {
       const notes = addNote(this.transcript.markdown, Math.trunc(o.para), o.time, o.text, end, quote, category)
       this.notesCache = null
       DebugLog.log(`note saved para=${o.para} time=${o.time} end=${end ?? '-'} category=${category} text=${JSON.stringify(o.text)}`)
-      return json(notes.map(noteJSON))
+      return json(notesForPage(notes))
     } catch (e) {
+      if (e instanceof LockTimeout) return json({ error: e.message }, 503)
       return json({ error: e instanceof Error ? e.message : String(e) }, 400)
     }
   }
@@ -221,32 +233,40 @@ export class PlayerSession {
     if (typeof o.para !== 'number' || typeof o.index !== 'number' || typeof o.text !== 'string') return json({ error: 'bad request' }, 400)
     const time = typeof o.time === 'number' ? Math.trunc(o.time) : null
     const file = this.transcript.markdown
+    const category: NoteCategory | undefined = o.category === 'mochi' || o.category === 'general' ? o.category : undefined
+    const para = Math.trunc(o.para), index = Math.trunc(o.index), shown = o.text
+    let change: (md: string) => string
+    if (path.endsWith('/delete')) {
+      change = (md) => deleteNote(md, para, index, shown, time)[0]
+    } else if (path.endsWith('/resolved')) {
+      if (typeof o.resolved !== 'boolean') return json({ error: 'bad request' }, 400)
+      const resolved = o.resolved
+      change = (md) => setResolved(md, para, index, shown, time, resolved)
+    } else if (path.endsWith('/release')) {
+      change = (md) => releaseClaimAt(md, para, index, shown, time)
+    } else if (path.endsWith('/category')) {
+      if (!category) return json({ error: 'bad category' }, 400)
+      change = (md) => setCategory(md, para, index, shown, time, category)
+    } else {
+      const newText = o.newText
+      if (typeof newText !== 'string' || newText.trim() === '') return json({ error: 'empty note' }, 400)
+      change = (md) => editNote(md, para, index, shown, time, newText, category)
+    }
     try {
-      const md = readFileSync(file, 'utf8')
-      let out: string
-      const category: NoteCategory | undefined = o.category === 'mochi' || o.category === 'general' ? o.category : undefined
-      if (path.endsWith('/delete')) {
-        out = deleteNote(md, Math.trunc(o.para), Math.trunc(o.index), o.text, time)[0]
-      } else if (path.endsWith('/resolved')) {
-        if (typeof o.resolved !== 'boolean') return json({ error: 'bad request' }, 400)
-        out = setResolved(md, Math.trunc(o.para), Math.trunc(o.index), o.text, time, o.resolved)
-      } else if (path.endsWith('/category')) {
-        if (!category) return json({ error: 'bad category' }, 400)
-        out = setCategory(md, Math.trunc(o.para), Math.trunc(o.index), o.text, time, category)
-      } else {
-        if (typeof o.newText !== 'string' || o.newText.trim() === '') return json({ error: 'empty note' }, 400)
-        out = editNote(md, Math.trunc(o.para), Math.trunc(o.index), o.text, time, o.newText, category)
-      }
-      // atomic write (temp file + rename); nothing to write when nothing changed
-      // the file is written anyway: it gets the current agent guide too (idempotent)
-      if (out !== md) { out = ensureGuide(out); atomicWriteText(file, out) }
+      // under the file lock (agents' video-notes CLI writes the same file): read fresh, change, atomic write
+      // (nothing is written when nothing changed); a written file gets the current agent guide too (idempotent)
+      const out = changeFile(file, change).after
       this.notesCache = null
       DebugLog.log(`note ${path.split('/').pop()} ok`)
-      return json({ notes: parseNotes(out).map(noteJSON) })
+      return json({ notes: notesForPage(parseNotes(out)) })
     } catch (e) {
       if (e instanceof NoteChanged) {
         DebugLog.log(`note ${path}: ${e.message}`)
         return json({ error: e.message }, 409)
+      }
+      if (e instanceof LockTimeout) {
+        DebugLog.log(`note ${path}: ${e.message}`)
+        return json({ error: e.message }, 503)
       }
       return json({ error: e instanceof Error ? e.message : String(e) }, 500)
     }
@@ -268,7 +288,7 @@ export class PlayerSession {
       if (periodic && Date.now() - w.at < 60_000) return
     }
     try {
-      writeProgress(this.transcript.folder, p.t, p.dur)
+      writeProgress(this.transcript.folder, p.t, p.dur, new Date(), p.home)
       this.written = { t: p.t, at: Date.now() }
       DebugLog.log(`progress saved ${Math.trunc(p.t)}s of ${Math.trunc(p.dur)}s${periodic ? ' (periodic)' : ''}`)
     } catch (e) {
@@ -296,7 +316,9 @@ export class PlayerSession {
     if ((type === 'tick' || type === 'pos') && typeof m.t === 'number' && m.ok !== false && m.resumed !== false) {
       // "tick" every second; "pos" on pause, after a seek, and every 10 s while playing ("playing": true)
       const dur = typeof m.dur === 'number' ? m.dur : 0
-      this.lastPos = { t: m.t, dur: dur > 0 ? dur : this.sidecar.duration }
+      // home rides along with the position; it never triggers a write by itself (same rules as before)
+      const home = typeof m.home === 'number' && Number.isFinite(m.home) ? m.home : (this.lastPos?.home ?? null)
+      this.lastPos = { t: m.t, dur: dur > 0 ? dur : this.sidecar.duration, home }
       if (type === 'pos') this.savePosition(m.playing === true)
       const p = this.lastPos
       if (!this.markedWatched && p.dur > 0 && p.t >= p.dur - Math.max(30, p.dur * 0.02)) {

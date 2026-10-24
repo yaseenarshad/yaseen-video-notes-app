@@ -47,6 +47,11 @@ export function buildMenu(get: () => MainWindow | null, actions: { updateYTDLP: 
       submenu: [
         { label: 'Reload Video', accelerator: 'CmdOrCtrl+R', click: w((m) => m.reloadActive()) },
         { type: 'separator' },
+        // like a browser: the spots you jumped away from (per tab, in memory)
+        { label: 'Back', accelerator: 'CmdOrCtrl+[', click: w((m) => m.activeSession?.run('FA.back()')) },
+        { label: 'Forward', accelerator: 'CmdOrCtrl+]', click: w((m) => m.activeSession?.run('FA.forward()')) },
+        { label: 'Jump Home (H)', click: w((m) => m.activeSession?.run('FA.home()')) },
+        { type: 'separator' },
         { label: 'Zoom In', accelerator: 'CmdOrCtrl+Plus', click: w((m) => m.zoom(1)) },
         { label: 'Zoom In', accelerator: 'CmdOrCtrl+=', visible: false, acceleratorWorksWhenHidden: true, click: w((m) => m.zoom(1)) },
         { label: 'Zoom Out', accelerator: 'CmdOrCtrl+-', click: w((m) => m.zoom(-1)) },

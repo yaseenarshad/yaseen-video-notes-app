@@ -10,9 +10,11 @@ const sameSource = (a: Source | null, b: Source | null): boolean =>
 
 type SortKey = 'title' | 'date' | 'progress' | 'status' | 'notes'
 
-const started = (r: FolderEntry): boolean => (r.progress?.seconds ?? 0) > 5
+/** The furthest of where the playhead was and the 📍 home spot (progress and "min left" use it; see core/progress.ts). */
+const furthest = (r: FolderEntry): number => (r.progress ? Math.max(r.progress.seconds, r.progress.home ?? r.progress.seconds) : 0)
+const started = (r: FolderEntry): boolean => furthest(r) > 5
 /** For sorting by progress: needs setup < not started < started < finished. */
-const progressRank = (r: FolderEntry): number => (!r.ready ? -1 : !r.progress || r.progress.seconds <= 5 ? 0 : r.finished ? 2 : r.fraction)
+const progressRank = (r: FolderEntry): number => (!r.ready ? -1 : !r.progress || furthest(r) <= 5 ? 0 : r.finished ? 2 : r.fraction)
 /** For sorting by status: option order, unset first. */
 const statusRank = (r: FolderEntry): number => (r.status ? r.statusOptions.indexOf(r.status) : -1)
 
@@ -367,7 +369,7 @@ function ProgressCell({ r }: { r: FolderEntry }) {
       <span className="progress">
         <span className="progress__bar"><span className={'progress__fill' + (r.finished ? ' progress__fill--done' : '')}
           style={{ width: `${Math.max(4, (r.finished ? 1 : r.fraction) * 100)}%` }} /></span>
-        <span className="progress__text">{r.finished ? 'Finished' : leftLabel(Math.max(0, r.progress.duration - r.progress.seconds))}</span>
+        <span className="progress__text">{r.finished ? 'Finished' : leftLabel(Math.max(0, r.progress.duration - furthest(r)))}</span>
       </span>
     )
   }

@@ -97,7 +97,7 @@
   setInterval(tick, 60);
 
   // Hotkeys: our keys never reach YouTube (its own F = fullscreen, arrows, space...).
-  var KEYS = { s: 1, d: 1, r: 1, g: 1, z: 1, x: 1, v: 1, n: 1, f: 1, '?': 1, ' ': 1, arrowleft: 1, arrowright: 1 };
+  var KEYS = { s: 1, d: 1, r: 1, g: 1, z: 1, x: 1, v: 1, n: 1, f: 1, h: 1, '?': 1, ' ': 1, arrowleft: 1, arrowright: 1 };
   function ours(e) {
     if (e.metaKey || e.ctrlKey || e.altKey) return false;
     var t = e.target && e.target.tagName;
