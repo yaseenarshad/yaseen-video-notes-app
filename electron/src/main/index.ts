@@ -5,6 +5,7 @@ import { ensure, findYTDLP, NeedsFormatting, YTDLP_MISSING } from '../core/folde
 import { migrateSettings, OLD_APP_NAME } from '../core/migrate'
 import { checkDue, DAILY_STALE_DAYS, describe, downloadsRunning, isOlderThan, isUpdating, updateYTDLP, versionForAge } from '../core/ytdlpUpdate'
 import { DebugLog } from './debugLog'
+import { registerFeed, startFeedTimer } from './feed'
 import { buildMenu } from './menu'
 import { Settings } from './settings'
 import { MainWindow, registerIPC } from './window'
@@ -49,6 +50,7 @@ function startApp(): void {
 
   let main: MainWindow | null = null
   registerIPC(() => main)
+  registerFeed(() => main)
 
   app.whenReady().then(async () => {
     // First launch under the new name: carry over the "Follow Along" settings (read-only on the old folder).
@@ -73,6 +75,8 @@ function startApp(): void {
     // Keep yt-dlp up to date: a few seconds after the window is up, then hourly (each check runs at most once a day).
     setTimeout(() => void dailyYTDLPCheck(() => main), 5000)
     setInterval(() => void dailyYTDLPCheck(() => main), 60 * 60_000).unref()
+    // The 📺 Feed: a first refresh soon (for the badge), then hourly (main/feed.ts).
+    startFeedTimer()
     // --open <path> opens just that video; otherwise the tabs of last time come back.
     const paths = openPath ? [openPath.startsWith('~/') ? app.getPath('home') + openPath.slice(1) : openPath] : Settings.openTabs
     if (!paths.length) { main.newTab(); return }

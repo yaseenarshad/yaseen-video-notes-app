@@ -4,6 +4,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { atomicWrite } from '../core/atomic'
+import { DEFAULT_FEED_DIR } from '../core/feed'
 import { DebugLog } from './debugLog'
 
 /**
@@ -27,6 +28,8 @@ interface Data {
   importedFromSwift?: boolean
   /** When the daily yt-dlp check last ran (ISO time). */
   ytdlpCheckedAt?: string
+  /** The 📺 Feed's folder, "~/…" (default DEFAULT_FEED_DIR in core/feed.ts). */
+  feedDir?: string
 }
 
 const NUMBER_PREFS: Record<string, [number, number]> = {
@@ -107,6 +110,9 @@ class SettingsStore {
   /** When the daily yt-dlp check last ran (ISO time). */
   get ytdlpCheckedAt(): string | undefined { return this.d.ytdlpCheckedAt }
   set ytdlpCheckedAt(v: string | undefined) { this.d.ytdlpCheckedAt = v; this.save() }
+
+  /** The 📺 Feed's folder (subscriptions.md, feed-hidden.json), with `~` for the home folder. */
+  get feedDir(): string { return this.d.feedDir || DEFAULT_FEED_DIR }
 
   get bounds(): Data['bounds'] { return this.d.bounds }
   set bounds(v: Data['bounds']) { this.d.bounds = v; this.save() }

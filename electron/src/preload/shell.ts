@@ -1,6 +1,6 @@
 // Preload of the shell (tab bar + New Tab pages): a small, typed IPC surface as window.fa.
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
-import type { FaAPI, ShellCommand, ShellState, WorkEvent } from '../shared/api'
+import type { FaAPI, FeedState, ShellCommand, ShellState, WorkEvent } from '../shared/api'
 
 const on = <T>(channel: string, cb: (v: T) => void): (() => void) => {
   const f = (_e: IpcRendererEvent, v: T) => cb(v)
@@ -28,6 +28,14 @@ const api: FaAPI = {
   setGroupByStatus: (on) => ipcRenderer.send('launcher:groupByStatus', on),
   popup: (items) => ipcRenderer.invoke('menu:popup', items),
   showInFinder: (path) => ipcRenderer.send('finder:show', path),
+  feedState: () => ipcRenderer.invoke('feed:state'),
+  onFeed: (cb) => on<FeedState>('feed:state', cb),
+  feedOpened: (again) => ipcRenderer.send('feed:opened', !!again),
+  feedRefresh: () => ipcRenderer.send('feed:refresh'),
+  feedFollow: (input) => ipcRenderer.invoke('feed:follow', input),
+  feedFollowFolder: (folder) => ipcRenderer.invoke('feed:followFolder', folder),
+  feedUnfollow: (channelId) => ipcRenderer.send('feed:unfollow', channelId),
+  feedHide: (videoId) => ipcRenderer.send('feed:hide', videoId),
 }
 
 contextBridge.exposeInMainWorld('fa', api)

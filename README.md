@@ -15,6 +15,23 @@ changes. Chromium changes speed smoothly, still plays 1080p, and still lets the 
 How it works (pipeline, file formats, the YouTube trick, failure modes): [docs/how-it-works.md](docs/how-it-works.md).
 Notes for coding agents: [CLAUDE.md](CLAUDE.md).
 
+## 📺 Feed
+
+The New Tab sidebar has a **📺 Feed** item, apart from the Library: the latest long-form videos of the YouTube
+channels you follow, newest first, with thumbnails, a channel filter and a badge for videos that came out since you
+last looked. Shorts are never shown. Nothing goes into your video folders until you press **Add to Library** (the same
+as pasting the link: the folder is made in the destination folder and opens). **Hide** removes a video for good;
+videos you already have show **In Library**.
+
+- Follow with the "+ Follow channel" field (`@handle`, a channel link, or any video link), or right-click a Library
+  row → Follow this channel. Unfollow: right-click a channel chip → Unfollow… and type `unfollow` to confirm.
+- The followed channels live in **`~/Documents/GitHub/skills-global-yaseen/yaseen-video-notes-app/subscriptions.md`**
+  (your synced skills repo, so every Mac sees the same list; setting `feedDir`, env `VIDEO_NOTES_FEED_DIR` for tests).
+  It is a markdown list you can edit: add a line `- https://www.youtube.com/@handle` and the app fills in the name and
+  ID; delete a line to unfollow. Hidden videos are in `feed-hidden.json` next to it.
+- Videos come from yt-dlp listing each channel's Videos tab (one call per channel, hourly and when the Feed opens).
+  YouTube's RSS feeds are not used for that: since October 2026 they answer 404 for most channels.
+
 ## Needs
 
 - macOS 14+ on Apple silicon, Node 20+ (`brew install node`)
