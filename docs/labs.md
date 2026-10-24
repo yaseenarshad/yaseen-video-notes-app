@@ -291,3 +291,19 @@ In the app: **🧪 Analyze** under the video (or Labs → Analyze This Video); t
   `Page.captureScreenshot` works while the window is behind others).
 - The debug log shows every skipped write (`read-only (labs): skipped …`), `labs: <id> on/off`, `analyze <id>: …`.
 - After a test: `git -C ~/Documents/GitHub/yaseen-docs-vault status` must be clean.
+
+## Additions (Agent B1)
+
+Two small additions to `src/labs/page/api.js` (each marked `// added by …` in the code):
+
+```
+LABS.video.box()            → the 16:9 element that holds the YouTube frame (added by highlight-reel). Restyle it
+                              (e.g. position: fixed for a focused layout); never move it in the DOM — that reloads the frame.
+LABS.transcript.scroller()  → the scrolling transcript column (added by dense-mode). Its parent is position: relative,
+                              so floating UI can sit over the transcript (absolute, like the A−/A+ tools).
+```
+
+Experiments by Agent B1 (each folder has a `GUIDE.md`): `highlight-reel` (▶ Reel, key E), `pull-quotes` (❝ Quotes tab,
+Read mode ⇧Q), `dense-mode` (▤ Dense, ⇧U). While the reel or Read mode is open they take the keyboard with a
+capture-phase `keydown` listener (and give it back when closed), because their keys (↑ ↓ ← → Space Esc Enter) are app keys
+that `LABS.ui.addKey` never takes over.
