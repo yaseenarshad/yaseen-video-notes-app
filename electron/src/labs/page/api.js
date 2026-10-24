@@ -110,6 +110,9 @@
       pause: function () { F.pause(); },
       toggle: function () { F.togglePlay(); },
       setRate: function (r) { F.setSpeed(r); },
+      // added by highlight-reel: the 16:9 box that holds the YouTube frame, so a focused layout can restyle it
+      // (e.g. position: fixed). Never move it in the DOM — that reloads the frame.
+      box: function () { return document.querySelector('.video'); },
       onTick: function (fn, ms) {
         var id = setInterval(function () { try { var s = F.state(); fn({ t: F.now(), rate: F.P.rate, paused: F.P.paused, para: s.para, word: s.word, chapter: s.chapter }); } catch (e) { LABS.log('tick error', String(e)); } }, ms || 250);
         return function () { clearInterval(id); };
@@ -182,6 +185,9 @@
         highlightRange: highlightRange,
         addGutterLayer: addGutterLayer,
         addPanelTab: function (id, label, render) { return F.addPanelTab(id, label, function (box) { render(box, LABS); }); },
+        // added by dense-mode: the scrolling transcript column; its parent is position: relative, so floating UI
+        // can sit over the transcript (absolute, like the A−/A+ tools).
+        scroller: function () { return document.getElementById('scroller'); },
       },
       analysis: analysis,
       ui: ui,
