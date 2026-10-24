@@ -103,7 +103,7 @@ async function retry429(run: () => Promise<void>, progress: ProgressFn): Promise
   }
 }
 
-function runYTDLP(binary: string, args: string[], progress: ProgressFn): Promise<void> {
+export function runYTDLP(binary: string, args: string[], progress: ProgressFn): Promise<void> {
   // Homebrew and deno on PATH; plain Node inside Electron's helper environment too.
   const env = toolEnv()
   return new Promise((resolve, reject) => {

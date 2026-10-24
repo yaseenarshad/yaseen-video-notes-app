@@ -35,6 +35,9 @@ installed copy (`com.yaseen.videonotes`; waits for it to exit), replaces `/Appli
 the fresh build (copied with `ditto`, not a symlink) and opens it. The first time it also quits a running old
 "Follow Along" (`com.yaseen.followalong`) so its tabs are saved before the new app copies its settings.
 Environment variables are `VIDEO_NOTES_*` (`DEBUG_LOG`, `USER_DATA`, `MUTE`, `NO_IMPORT`); the old `FOLLOW_ALONG_*` names still work.
+`VIDEO_NOTES_FEED_DIR=<tmp>` points the 📺 Feed's files somewhere else: **always set it for test instances** (the default is the
+user's real `~/Documents/GitHub/skills-global-yaseen/yaseen-video-notes-app/`, which also holds their SKILL.md — never touch that).
+Real-network Feed checks: `VIDEO_NOTES_NETWORK_TESTS=1 npx vitest run src/core/feedFetch.network.test.ts`.
 
 yt-dlp upkeep: the app updates yt-dlp itself (daily if > 14 days old, after a yt-dlp failure if > 7 days old, menu
 "Update yt-dlp Now"); `VIDEO_NOTES_FAKE_YTDLP_VERSION=2026.01.01` makes a test instance treat it as old (the update is real).
@@ -55,18 +58,25 @@ Do not commit unless asked.
   - `folderMaker.ts` — yt-dlp runner (one caption track, 429 retries, self-heal), make / reuse / set up folders, New Tab folder list
   - `ytdlpUpdate.ts` — keeps yt-dlp up to date: version age, update method by install path (brew / pip / -U),
     one update at a time and never during a download, self-heal after a failed download
+  - `feed.ts` — the 📺 Feed's pure logic: `subscriptions.md` read / minimal line edits (follow, unfollow, resolve a typed
+    link; code blocks and comments skipped), `feed-hidden.json`, the yt-dlp Videos-tab listing, Videos-tab page and RSS
+    parsing, the Shorts decision, merge / sort / hide / In-Library / badge; `feedFetch.ts` — its network side
+    (resolve a channel, list a channel: yt-dlp → Videos tab page → RSS); `feedFixtures.ts` — real saved output for the tests
   - `status.ts` — per-video status in the yaseen-docs-app format; `progress.ts` — the resume file
   - `text.ts` — Swift-compatible whitespace / trimming / number parsing (byte-identical output)
   - `*.test.ts` — the ported Swift unit tests (+ `fixtures.ts`)
 - `main/` — the Electron main process
   - `index.ts` — entry: CLI modes, app start, restore tabs, the daily yt-dlp check and "Update yt-dlp Now"; `menu.ts` — app menus and keys
+  - `feed.ts` — the 📺 Feed service: the feed folder (`feedDir` setting / `VIDEO_NOTES_FEED_DIR`), file watching, the per-machine
+    cache (`feed-cache.json` in userData), refresh rounds (sequential, 429 back-off, yt-dlp update lock), IPC
   - `window.ts` — the window: tab strip (shell view) + one WebContentsView per video, IPC, dialogs
   - `session.ts` — one video: local HTTP server (notes/prefs/position API) + its view + iframe injection
   - `server.ts` — the 127.0.0.1 HTTP server; `settings.ts` — prefs JSON in userData (+ one-time import of the Swift app's UserDefaults); `debugLog.ts`
   - `player.html` — the whole player page (HTML/CSS/JS, served by the session's server)
   - `injected.js` — JS injected into the YouTube iframe (rate, seek, status, keys)
 - `preload/` — `shell.ts` (window.fa, typed IPC) and `player.ts` (window.faNative.post)
-- `renderer/` — the shell: `TabBar.tsx` (the yaseen-docs-app tab bar look), `NewTab.tsx` (Finder-style New Tab page)
+- `renderer/` — the shell: `TabBar.tsx` (the yaseen-docs-app tab bar look), `NewTab.tsx` (Finder-style New Tab page),
+  `Feed.tsx` (the 📺 Feed view, typed-confirm Unfollow… dialog)
 - `cli/` — the CLI (`run.ts`, used by both the app binary and `cli.js`)
 - `scripts/` — `package.mjs` (packaging + signing), `install-app.mjs` (package + install into /Applications + open)
 
@@ -111,3 +121,7 @@ Do not commit unless asked.
 10. **Test instances never collide with the user.** Run the app with its own settings folder and muted, behind
     other windows: `--user-data-dir=<tmp> --mute --inactive` (add `--remote-debugging-port=<n>` to drive it with
     CDP). Only drive and quit windows you started. `--open` also leaves the user's tabs / Recent alone.
+11. **The 📺 Feed never writes into video folders** (only "Add to Library" does, through the normal make flow). Its
+    `subscriptions.md` is the user's file: only minimal line edits of channel lines (add / delete / rewrite one typed
+    link); never the title, intro, Format section, code blocks or comments. Shorts are never shown. Unfollowing needs
+    the typed confirm. Details: [docs/how-it-works.md](docs/how-it-works.md) section 7.

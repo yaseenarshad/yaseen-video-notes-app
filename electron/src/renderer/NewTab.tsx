@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from "react"
 import { parseYouTubeID } from '../core/transcript'
-import type { FolderEntry, LauncherInfo, MenuSpec, Source, WorkEvent } from '../shared/api'
+import type { FeedState, FolderEntry, LauncherInfo, MenuSpec, Source, WorkEvent } from '../shared/api'
+import { FeedView } from './Feed'
 
 const DEFAULT_OPTIONS = ['1-To-Watch', '2-Watching', '3-Watched', '4-Carded']
 const name = (p: string): string => p.split('/').filter(Boolean).pop() ?? p
@@ -55,6 +56,10 @@ export function NewTab({ tabId, active, work, clearWork }: { tabId: string; acti
   const [selected, setSelected] = useState<string | null>(null)
   const [error, setError] = useState('')
   const [dropOn, setDropOn] = useState<string | null>(null)
+  /** The 📺 Feed is shown instead of the Library list. */
+  const [feedOn, setFeedOn] = useState(false)
+  const [feed, setFeed] = useState<FeedState | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
   const filterRef = useRef<HTMLInputElement>(null)
   const linkRef = useRef<HTMLInputElement>(null)
   const tableRef = useRef<HTMLDivElement>(null)
@@ -89,7 +94,19 @@ export function NewTab({ tabId, active, work, clearWork }: { tabId: string; acti
   }, [active, reload])
   useEffect(() => window.fa.onCommand((c) => { if (c.kind === 'focusFilter' && c.tabId === tabId) { filterRef.current?.focus(); filterRef.current?.select() } }), [tabId])
 
+  // the 📺 Feed: its state (and the sidebar badge) comes from the main process
+  useEffect(() => {
+    void window.fa.feedState().then(setFeed)
+    return window.fa.onFeed(setFeed)
+  }, [])
+  // opening the Feed refreshes it (when stale) and clears the badge; new videos that arrive while it is open count as seen
+  useEffect(() => { if (feedOn && active) window.fa.feedOpened() }, [feedOn, active])
+  useEffect(() => { if (feedOn && active && feed && feed.newCount > 0) window.fa.feedOpened(true) }, [feedOn, active, feed])
+  useEffect(() => { if (active) void window.fa.feedState().then(setFeed) }, [active])
+  useEffect(() => { if (!notice) return; const t = setTimeout(() => setNotice(null), 2500); return () => clearTimeout(t) }, [notice])
+
   const choose = (s: Source) => {
+    setFeedOn(false)
     setSource(s)
     if (s.kind === 'folder') setDestination(s.path)
   }
@@ -148,9 +165,16 @@ export function NewTab({ tabId, active, work, clearWork }: { tabId: string; acti
       { id: 'open', label: 'Open' },
       { label: 'Set Status', submenu: statusMenu(r).map((m) => ({ ...m, checked: undefined })) },
       { id: 'finder', label: 'Show in Finder' },
+      { separator: true },
+      { id: 'follow', label: 'Follow this channel' },
     ])
     if (id === 'open') open(r)
     else if (id === 'finder') window.fa.showInFinder(r.folder)
+    else if (id === 'follow') {
+      const err = await window.fa.feedFollowFolder(r.folder)
+      if (err) setError(err)
+      else setNotice('Following — its new videos show in 📺 Feed')
+    }
     else if (id?.startsWith('status:')) void setStatus(r, id.slice(7))
   }
 
@@ -253,13 +277,16 @@ export function NewTab({ tabId, active, work, clearWork }: { tabId: string; acti
   return (
     <div className="newtab">
       <nav className="sidebar">
-        <div className="sidebar__section">Videos</div>
-        <SideItem icon={Icon.clock} label="Recent" on={source?.kind === 'recent'} onClick={() => choose({ kind: 'recent' })} />
-        <SideItem icon={Icon.play} label="In progress" on={source?.kind === 'inProgress'} onClick={() => choose({ kind: 'inProgress' })} />
+        <SideItem icon={<span className="sideitem__emoji">📺</span>} label="Feed" on={feedOn} badge={feed?.newCount ?? 0}
+          title="The latest videos of channels you follow (not in your Library until you add them)" onClick={() => setFeedOn(true)} />
+        <div className="sidebar__divider" />
+        <div className="sidebar__section">Library</div>
+        <SideItem icon={Icon.clock} label="Recent" on={!feedOn && source?.kind === 'recent'} onClick={() => choose({ kind: 'recent' })} />
+        <SideItem icon={Icon.play} label="In progress" on={!feedOn && source?.kind === 'inProgress'} onClick={() => choose({ kind: 'inProgress' })} />
         <div className="sidebar__section">Folders</div>
         {(info?.pinned ?? []).map((p) => (
           <SideItem key={p} icon={Icon.folder} label={name(p)} title={tilde(p, info?.home ?? '')}
-            on={source?.kind === 'folder' && source.path === p} onClick={() => choose({ kind: 'folder', path: p })} onContextMenu={(e) => folderMenu(e, p)} />
+            on={!feedOn && source?.kind === 'folder' && source.path === p} onClick={() => choose({ kind: 'folder', path: p })} onContextMenu={(e) => folderMenu(e, p)} />
         ))}
         <SideItem icon={Icon.plus} label="Add Folder…" quiet onClick={addFolder} />
         <SideItem icon={Icon.other} label="Other Folder…" quiet onClick={() => window.fa.openExisting(tabId, currentFolder)} />
@@ -275,6 +302,9 @@ export function NewTab({ tabId, active, work, clearWork }: { tabId: string; acti
           </div>
           {linkError && <div className="linkerror">{linkError}</div>}
         </div>
+        {feedOn ? (
+          <FeedView feed={feed} tabId={tabId} destination={destination} onOpenFolder={(f) => { clearWork(); window.fa.openFolder(tabId, f) }} />
+        ) : (<>
         <div className="listheader">
           <h2 className="listheader__title">{title}</h2>
           {loading && <span className="spinner" />}
@@ -318,6 +348,7 @@ export function NewTab({ tabId, active, work, clearWork }: { tabId: string; acti
             </div>
           </div>
         )}
+        </>)}
       </main>
       {(work && work.step !== 'browse') || error ? (
         <div className="overlay">
@@ -337,16 +368,18 @@ export function NewTab({ tabId, active, work, clearWork }: { tabId: string; acti
           </div>
         </div>
       ) : null}
+      {notice && <div className="zoomtoast">{notice}</div>}
     </div>
   )
 }
 
-function SideItem({ icon, label, on, quiet, title, onClick, onContextMenu }: {
-  icon: ReactNode; label: string; on?: boolean; quiet?: boolean; title?: string; onClick: () => void; onContextMenu?: (e: MouseEvent) => void
+function SideItem({ icon, label, on, quiet, title, badge, onClick, onContextMenu }: {
+  icon: ReactNode; label: string; on?: boolean; quiet?: boolean; title?: string; badge?: number; onClick: () => void; onContextMenu?: (e: MouseEvent) => void
 }) {
   return (
     <button className={'sideitem' + (on ? ' sideitem--on' : '') + (quiet ? ' sideitem--quiet' : '')} title={title} onClick={onClick} onContextMenu={onContextMenu}>
       <span className="sideitem__icon">{icon}</span><span className="sideitem__label">{label}</span>
+      {!!badge && <span className="sideitem__badge" aria-label={`${badge} new`}>{badge > 99 ? '99+' : badge}</span>}
     </button>
   )
 }

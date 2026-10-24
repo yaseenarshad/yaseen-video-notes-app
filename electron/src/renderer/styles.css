@@ -139,3 +139,56 @@ svg { width: 16px; height: 16px; flex: none; }
 .card__error { margin: 0; max-height: 180px; overflow: auto; font: 13px/1.45 ui-monospace, Menlo, monospace; white-space: pre-wrap; user-select: text; }
 .card__buttons { display: flex; justify-content: flex-end; }
 .okbtn { padding: 6px 18px; border-radius: 7px; background: var(--accent); color: var(--accent-fg); font-weight: 600; }
+
+/* ---------- 📺 Feed (Feed.tsx): its own sidebar item above the Library, then the feed list ---------- */
+.sidebar__divider { height: 1px; margin: 10px 6px 0; background: var(--border); flex: none; }
+.sideitem__emoji { font-size: 16px; line-height: 1; width: 17px; text-align: center; }
+.sideitem__badge { margin-left: auto; min-width: 20px; padding: 1px 7px; border-radius: 999px; background: var(--accent); color: var(--accent-fg); font-size: 12px; font-weight: 600; text-align: center; font-variant-numeric: tabular-nums; }
+.togglebtn:disabled { opacity: .5; }
+
+.followbar { padding: 0 20px 10px; display: flex; flex-direction: column; gap: 8px; }
+.followbox { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 6px 0 12px; border-radius: 9px; background: var(--field); }
+.followbox:focus-within { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 60%, transparent); }
+.followbox__plus { color: var(--accent); font-size: 18px; font-weight: 600; line-height: 1; }
+.followbox input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font-size: 15px; }
+.followbox input::placeholder { color: var(--faint); }
+.followbtn { flex: none; padding: 5px 14px; border-radius: 7px; background: var(--accent); color: var(--accent-fg); font-size: 13.5px; font-weight: 600; }
+.followbtn:disabled { background: color-mix(in srgb, var(--muted) 18%, transparent); color: var(--faint); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.fchip { display: inline-flex; align-items: center; border-radius: 999px; background: color-mix(in srgb, var(--muted) 14%, transparent); font-size: 13.5px; font-weight: 500; }
+.fchip:hover { background: color-mix(in srgb, var(--muted) 22%, transparent); }
+.fchip--on, .fchip--on:hover { background: var(--sel); box-shadow: inset 0 0 0 1px var(--sel-edge); }
+.fchip__name { display: inline-flex; align-items: center; gap: 5px; padding: 4px 11px; white-space: nowrap; }
+.fchip__warn { display: inline-grid; place-items: center; width: 15px; height: 15px; border-radius: 50%; background: var(--orange); color: #fff; font-size: 11px; font-weight: 700; }
+.feednote { font-size: 13px; color: var(--orange); }
+.feedfile { font-size: 12.5px; color: var(--faint); }
+.feedfile code { font: 12px ui-monospace, Menlo, monospace; }
+.feedfile__link { color: var(--muted); text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--muted) 40%, transparent); }
+.feedfile__link:hover { color: var(--fg); }
+
+.feedlist { flex: 1; min-height: 0; overflow-y: auto; padding: 0 12px 20px; }
+.feedrow { display: grid; grid-template-columns: 160px minmax(0, 1fr) auto; align-items: center; column-gap: 14px; padding: 8px 10px; border-radius: 9px; user-select: none; }
+.feedrow:hover { background: var(--hover); }
+.feedrow__thumb { width: 160px; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 7px; background: color-mix(in srgb, var(--muted) 18%, transparent); display: block; }
+.feedrow__main { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.feedrow__title { font-size: 16px; font-weight: 500; line-height: 1.3; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.feedrow__new { display: inline-block; width: 8px; height: 8px; margin: 0 7px 2px 0; border-radius: 50%; background: var(--accent); vertical-align: middle; }
+.feedrow__meta { font-size: 14px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.feedrow__channel:hover { color: var(--fg); text-decoration: underline; }
+.feedrow__actions { display: flex; align-items: center; gap: 6px; }
+.addbtn { padding: 6px 13px; border-radius: 7px; background: var(--accent); color: var(--accent-fg); font-size: 13.5px; font-weight: 600; white-space: nowrap; }
+.inlib { padding: 6px 13px; border-radius: 7px; color: var(--green); font-size: 13.5px; font-weight: 600; white-space: nowrap; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--green) 55%, transparent); }
+.inlib:hover { background: color-mix(in srgb, var(--green) 12%, transparent); }
+.hidebtn { padding: 6px 11px; border-radius: 7px; color: var(--muted); font-size: 13.5px; white-space: nowrap; }
+.hidebtn:hover { color: var(--fg); background: var(--hover); }
+.empty__emoji { font-size: 32px; opacity: .6; }
+
+/* "Unfollow…": typed confirm */
+.confirm__text { font-size: 15px; color: var(--muted); }
+.confirm__input { width: 100%; height: 38px; padding: 0 12px; border-radius: 8px; border: 1px solid color-mix(in srgb, var(--muted) 30%, transparent); background: var(--bg); font-size: 15px; outline: none; }
+.confirm__input:focus { border-color: color-mix(in srgb, #d92d20 60%, transparent); }
+.confirm__buttons { gap: 8px; }
+.cancelbtn { padding: 6px 16px; border-radius: 7px; border: 1px solid var(--border); background: var(--panel); font-weight: 500; }
+.cancelbtn:hover { background: var(--hover); }
+.dangerbtn { padding: 6px 16px; border-radius: 7px; background: #d92d20; color: #fff; font-weight: 600; }
+.dangerbtn:disabled { background: color-mix(in srgb, #d92d20 25%, transparent); color: color-mix(in srgb, #fff 60%, transparent); }

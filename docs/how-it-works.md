@@ -280,6 +280,7 @@ value:
 - The New Tab page is a Finder-style browser: sidebar (Recent, In progress, pinned folders like learning-log,
   Add Folder…, Other Folder…), a paste-a-link field with the destination folder chip, and a sortable table
   (Title, Date, Progress, Status, Notes), optionally grouped by status. Enter or double-click opens.
+- The sidebar's **📺 Feed** (above the Library, with a count badge) is described in [section 7](#7-the--feed).
 - Settings live in `~/Library/Application Support/Yaseen Video Notes/settings.json` (written atomically): speed,
   favorite/last speed, transcript text size, focus mode, divider position, side-panel tab, app zoom (`uiScale`),
   pinned folders, Recent, open tabs, window size. On the first launch under the new name, when that file does
@@ -302,6 +303,72 @@ WCAG contrast on the page background, light / dark: body text 16.2 / 14.2, past 
 timestamps and meta 5.7 / 6.8, current-phrase text on its highlight 13.5 / 12.0, note text 15.0 / 12.0, note
 time 5.1 / 6.7, chapter time 5.0 / 7.3. Nothing is below 4.5. Focus mode is the same view with the other
 paragraphs faded and the current one larger.
+
+## 7. The 📺 Feed
+
+The latest long-form videos of followed YouTube channels, kept apart from the Library: nothing is written into the
+video folders until **Add to Library** (the same flow as pasting a link: the folder is made in the destination
+folder and opens in the tab). Code: `core/feed.ts` (pure, tested in `feed.test.ts` with real saved output),
+`core/feedFetch.ts` (network), `main/feed.ts` (files, cache, timers, IPC), `renderer/Feed.tsx` (the view).
+
+**Files.** The feed folder is the setting `feedDir`, default `~/Documents/GitHub/skills-global-yaseen/yaseen-video-notes-app`
+(the user's synced skills repo, so every Mac has the same list; stored with `~`, resolved against the home folder;
+`VIDEO_NOTES_FEED_DIR` overrides it — tests point it at a temp folder). The app creates the folder and its two files
+when missing and never touches anything else there (the folder also holds the skill's `SKILL.md`).
+
+- `subscriptions.md` — the followed channels, readable and editable in the docs app:
+
+  ```
+  # YouTube subscriptions
+
+  Channels the Yaseen Video Notes Feed follows. …
+
+  - [All-In Podcast](https://www.youtube.com/@allin) · UCESLZhusAkFfsNsApnjF_Cg · added 2026-10-23
+  - https://www.youtube.com/@DwarkeshPatel          ← typed by hand
+
+  ## Format (for fixing this file)
+  …
+  ```
+
+  A channel is a `- ` line in the full form `- [Title](url) · UC… · added YYYY-MM-DD`. A `- ` line that is just a
+  YouTube link (`@handle`, `/channel/UC…` or a video link; also `<url>`, `[text](url)` or `@handle`) is resolved
+  (channel page → canonical `/channel/UC…` + `og:title`) and only that line is rewritten into the full form (when
+  it still reads the same; when that channel is already listed the typed line is removed). Every other line — the
+  title, the intro, the Format section, anything inside fenced code blocks or HTML comments — is ignored and never
+  changed. Following from the app inserts the full line among the channel lines in title order (case-insensitive;
+  before the first `## ` heading when the list is empty); unfollowing deletes that line. Every write re-reads the
+  file first, is a minimal line edit, atomic, and only happens when something changed. The folder is watched, so an
+  edit (by hand, or synced from another Mac) shows up right away; the files are also re-read every time the Feed
+  is looked at.
+- `feed-hidden.json` — `{ "hidden": [ids, oldest first] }`, at most 2000 (the oldest dropped). Machine data.
+- Per machine (`~/Library/Application Support/Yaseen Video Notes/feed-cache.json`): the fetched videos (up to 50 per
+  channel), when each channel was checked and its last error, the Shorts check answers, and when the Feed was last
+  opened (for the badge).
+
+**Fetching (no Shorts, ever).** One `yt-dlp` call per channel lists its **Videos tab**, which has no Shorts (they have
+their own tab) and no live streams:
+`yt-dlp --flat-playlist --playlist-items 1:15 --extractor-args youtubetab:approximate_date --print "%(id)s\t%(title)s\t%(duration)s\t%(upload_date)s\t%(timestamp)s\t%(live_status)s" https://www.youtube.com/channel/UC…/videos`.
+Dates are approximate (a day), fine for sorting and "2 days ago"; same-day videos keep the page order. Upcoming
+premieres / live streams (`live_status` is_upcoming / is_live) are left out. Channels are fetched one at a time, ~1 s
+apart, waiting while yt-dlp is being updated (`whileDownloading`); a 429 stops the round, keeps the cached videos and
+pauses fetching for 30 min. When the Feed opens (channels checked more than 30 min ago), 15 s after launch, hourly,
+and once more 10 min after a round where a channel failed (its error shows as a small note on its chip).
+
+Fallbacks, in order: without yt-dlp (or when it fails with something other than 429) the Videos tab page itself is
+fetched and its `ytInitialData` read (same list, times from "2 days ago"); then YouTube's RSS feeds, one try each —
+the long-form uploads playlist (`playlist_id=UULF` + the id after `UC`, no Shorts) and the channel feed
+(`channel_id=UC…`, with Shorts: an entry whose link is `/shorts/<id>` is dropped, and every other new video is checked
+once with `GET /shorts/<id>` without following redirects — 200 = Short, a redirect to `/watch` = a video; unknown
+answers keep it out until checked). **Why RSS is not the main source:** since October 2026 these feeds answer 404 for
+most channels most of the time (the playlist feeds always), even for big old channels.
+
+**The view.** Rows newest first across channels: thumbnail (`i.ytimg.com/vi/<id>/mqdefault.jpg`; the shell's CSP
+allows that host), title, channel, "2 days ago", duration. A dot marks videos newer than the time before last that the
+Feed was opened. Channel filter (menu, or click a chip / a row's channel name). **Add to Library**, **Hide** (for
+good, in `feed-hidden.json`), **In Library** (matched by video id against the pinned folders and Recent; click opens
+it). The sidebar badge counts visible videos published after the Feed was last opened, not in the Library. Unfollow
+is deliberate: right-click a channel chip → Unfollow… → type `unfollow` (the button stays disabled until then; Esc
+cancels). Right-click a Library row → Follow this channel (resolved from the video's link).
 
 ## Hotkeys
 
