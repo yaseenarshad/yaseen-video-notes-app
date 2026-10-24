@@ -90,7 +90,7 @@
       gList = groups(a);
       box.appendChild(el('div', { class: 'pq-head' }, [
         el('span', {}, [el('b', {}, [a.pullQuotes.length + ' quotes']), ' · ' + gList.length + (gList[0].kind === 'window' ? ' parts' : ' chapters') + ' · ~' + readMin(a) + ' min read']),
-        el('button', { title: 'Only the quotes, large, as a page (⇧Q)', onclick: openRead }, ['📖 Read mode']),
+        el('button', { title: 'Only the quotes, large, as a page (⇧P)', onclick: openRead }, ['📖 Read mode']),
       ]));
       gList.forEach(function (g) {
         var ge = el('div', { class: 'pq-g' });
@@ -173,13 +173,13 @@
   window.addEventListener('keydown', function (e) {
     if (!reading || e.metaKey || e.ctrlKey || e.altKey) return;
     var k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
-    if (k === 'Escape' || (k === 'q' && e.shiftKey)) { e.preventDefault(); e.stopImmediatePropagation(); closeRead(); return; }
+    if (k === 'Escape' || (k === 'p' && e.shiftKey)) { e.preventDefault(); e.stopImmediatePropagation(); closeRead(); return; }
     if (k === 'j') { e.preventDefault(); setKb(kb + 1); }
     else if (k === 'k') { e.preventDefault(); setKb(kb - 1); }
     else if (k === 'Enter') { e.preventDefault(); if (kb >= 0) play(bigs[kb]._q); }
     // ↑ ↓ Space PageUp PageDown Home End scroll the page (their default); every other key is kept from the player
     e.stopImmediatePropagation();
   }, true);
-  L.ui.addKey('shift+q', function () { if (reading) closeRead(); else openRead(); }, 'Pull quotes: Read mode (Labs)');
+  L.ui.addKey('shift+p', function () { if (reading) closeRead(); else openRead(); }, 'Pull quotes: Read mode (Labs)');
   window.LABS_pullQuotes = { openRead: openRead, closeRead: closeRead, show: function () { tab.show(); } };
 })();

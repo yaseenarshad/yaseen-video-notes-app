@@ -479,7 +479,13 @@
   var btn = L.ui.addButton({ id: 'hrOpen', label: '▶ Reel', title: 'Highlight reel: the AI highlights back to back, TikTok-style (E)', onClick: open });
   L.ui.addKey('e', open, 'Highlight reel (Labs)');
   function showCount(a) { btn.textContent = a && a.highlights && a.highlights.length ? '▶ Reel · ' + a.highlights.length : '▶ Reel'; }
-  L.analysis.get().then(function (a) { A = a; showCount(a); });
-  L.analysis.onChange(function (a) { A = a; showCount(a); });
+  // Opened with #labs=reel (the board's ▶ Reel button, triage-cards): go straight into the reel once the analysis is here.
+  function launchReel() {
+    if (!L.launch || !L.launch.has('reel') || R) return;
+    if (A && A.highlights && A.highlights.length) { L.launch.clear(); open(); }
+  }
+  L.analysis.get().then(function (a) { A = a; showCount(a); launchReel(); });
+  L.analysis.onChange(function (a) { A = a; showCount(a); launchReel(); });
+  if (L.launch) L.launch.onChange(launchReel);
   window.LABS_highlightReel = { open: open, close: close, state: function () { return R && { i: R.i, n: R.list.length, summary: R.summary, playMs: R.playMs, order: order }; }, likes: function () { return likes; } };
 })();

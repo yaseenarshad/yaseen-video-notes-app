@@ -11,11 +11,11 @@ only this list, large, as a page you can scroll: the whole episode's best lines 
 2. Click the **❝ Quotes** tab in the side panel (under the video).
    - Click a quote → the video jumps there. Hover a quote → its words are marked in the transcript.
    - Click a chapter title → jump to the start of that chapter.
-3. Click **📖 Read mode** (or press **⇧Q**):
+3. Click **📖 Read mode** (or press **⇧P**):
    - scroll, or `J` / `K` to step through the quotes (the current one is outlined);
    - `Enter` or a click on a quote → close Read mode and play from that line;
    - the chapter you are in now says **YOU ARE HERE**;
-   - `Esc` (or ⇧Q, or ✕ Close) closes it.
+   - `Esc` (or ⇧P, or ✕ Close) closes it.
 
 ## What to judge it on
 
