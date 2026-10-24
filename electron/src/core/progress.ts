@@ -1,8 +1,9 @@
 import { execFileSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { mkdirSync, readFileSync } from 'node:fs'
 import { hostname } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { atomicWrite } from './atomic'
+import { labsProgressFile } from './flavor'
 
 /**
  * Where a video was left, in a small file next to its transcript:
@@ -25,6 +26,9 @@ import { atomicWrite } from './atomic'
  * differs from `seconds` (where the playhead was) after a detour, e.g. a jump to the end to check something.
  * Old files have no `home`: it reads as `seconds`. The New Tab progress and "min left" use the furthest of the
  * two (a detour ahead of home still counts as seen); resume uses home.
+ *
+ * Labs flavor (flavor.ts): the spot is kept in Labs' own userData (`<userData>/labs-progress/<hash>.json`, same
+ * format); until Labs has one for a folder it reads the real file next to the transcript (read-only).
  */
 export interface Progress {
   seconds: number
@@ -48,8 +52,13 @@ export const left = (p: Progress): number => Math.max(0, p.duration - furthest(p
 export const fraction = (p: Progress): number => (p.duration > 0 ? Math.min(1, Math.max(0, furthest(p) / p.duration)) : 0)
 
 export function readProgress(folder: string): Progress | null {
+  const labs = labsProgressFile(folder)
+  return (labs ? readProgressFile(labs) : null) ?? readProgressFile(join(folder, PROGRESS_FILE))
+}
+
+function readProgressFile(file: string): Progress | null {
   try {
-    const o = JSON.parse(readFileSync(join(folder, PROGRESS_FILE), 'utf8')) as Record<string, unknown>
+    const o = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>
     if (typeof o.seconds !== 'number' || typeof o.duration !== 'number' || typeof o.updated !== 'string') return null
     return { seconds: o.seconds, duration: o.duration, updated: o.updated, device: typeof o.device === 'string' ? o.device : null,
       home: typeof o.home === 'number' && Number.isFinite(o.home) ? o.home : null }
@@ -91,7 +100,9 @@ export function encodeProgress(p: Progress): string {
 export function writeProgress(folder: string, seconds: number, duration: number, date: Date = new Date(), home: number | null = null): void {
   const p: Progress = { seconds: swiftRound(seconds), duration: swiftRound(duration), updated: iso(date), device: device(),
     home: home === null || !Number.isFinite(home) ? null : swiftRound(home) }
-  atomicWrite(join(folder, PROGRESS_FILE), encodeProgress(p))
+  const labs = labsProgressFile(folder)
+  if (labs) mkdirSync(dirname(labs), { recursive: true })
+  atomicWrite(labs ?? join(folder, PROGRESS_FILE), encodeProgress(p))
 }
 
 /** Swift `Double.rounded()`: half away from zero. */

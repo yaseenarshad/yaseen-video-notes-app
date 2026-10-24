@@ -7,6 +7,7 @@ import { ensure, entry, inProgress, listFolders, make, markdownFile, NeedsFormat
 import { cardId, type DropSpot } from '../core/board'
 import { moveOnBoard, readBoard } from '../core/boardFile'
 import { readStatus, writeStatus } from '../core/status'
+import { isLabs, writable } from '../core/flavor'
 import { parseYouTubeID } from '../core/transcript'
 import type { LauncherInfo, MenuSpec, ShellCommand, ShellState, Source, TabInfo, WorkEvent } from '../shared/api'
 import { DebugLog } from './debugLog'
@@ -26,6 +27,8 @@ export interface WindowOptions {
 }
 
 const BAR = 44
+/** Labs: what the board / table shows when a status change could not be saved (read-only vault). */
+const READ_ONLY_STATUS = 'Labs is read-only — the status is not saved'
 
 /**
  * The app's window: a tab strip on top (the shell view, which also draws the New Tab pages), and
@@ -48,7 +51,7 @@ export class MainWindow {
     this.win = new BaseWindow({
       width: 1440, height: 900, minWidth: 620, minHeight: 480,
       ...(visible ? b : {}),
-      title: 'Yaseen Video Notes',
+      title: app.name,
       show: false,
       backgroundColor: nativeTheme.shouldUseDarkColors ? '#1c1c1f' : '#fbfaf7',
     })
@@ -86,14 +89,21 @@ export class MainWindow {
       id: t.id, kind: t.kind, title: t.title,
       tooltip: t.session ? t.session.transcript.markdown : t.title,
     }))
-    return { tabs, active: this.activeId, scale: Settings.uiScale }
+    return { tabs, active: this.activeId, scale: Settings.uiScale, flavor: isLabs() ? 'labs' : 'normal' }
+  }
+
+  /** 🧪 Labs → Labs Experiments…: the panel on the active New Tab (or a new one). */
+  showLabs(): void {
+    const tab = this.activeTab?.kind === 'new' ? this.activeTab : this.newTab()
+    this.select(tab.id)
+    this.command({ kind: 'showLabs', tabId: tab.id })
   }
 
   pushState(): void {
     if (this.closing) return
     this.shell.webContents.send('shell:state', this.state())
     const t = this.activeTab
-    this.win.setTitle(t ? t.title : 'Yaseen Video Notes')
+    this.win.setTitle(t ? t.title : app.name)
   }
 
   work(e: WorkEvent): void { if (!this.closing) this.shell.webContents.send('shell:work', e) }
@@ -263,7 +273,8 @@ export class MainWindow {
   async create(tabId: string, link: string, destination: string): Promise<void> {
     const l = link.trim()
     if (!parseYouTubeID(l)) return
-    const parent = destination.startsWith('~/') ? homedir() + destination.slice(1) : destination
+    // Labs: always its own library (never the vault)
+    const parent = Settings.forcedOutputParent ?? (destination.startsWith('~/') ? homedir() + destination.slice(1) : destination)
     Settings.outputParent = parent
     if (!Settings.pinnedFolders.includes(parent) && existsSync(parent)) Settings.pinnedFolders = [...Settings.pinnedFolders, parent]
     await this.runWork(tabId, (progress) => make(l, parent, { allowFormat: false, progress }))
@@ -384,6 +395,7 @@ export function registerIPC(get: () => MainWindow | null): void {
       const md = markdownFile(folder)
       if (!md) return 'no transcript .md'
       writeStatus(folder, md, value)
+      if (!writable(md)) return READ_ONLY_STATUS // Labs: the guard skipped the write
       DebugLog.log(`status set ${value} for ${basename(folder)}`)
       return null
     } catch (e) {
@@ -404,6 +416,7 @@ export function registerIPC(get: () => MainWindow | null): void {
       const e = entry(folder)
       if (!e) return null
       moveOnBoard(dirname(folder), cardId(e), to, spot ?? {})
+      if (!writable(md)) return READ_ONLY_STATUS // Labs: the guard skipped both writes
       return null
     } catch (e) {
       return `Could not move the card: ${e instanceof Error ? e.message : String(e)}`
@@ -420,7 +433,7 @@ export function registerIPC(get: () => MainWindow | null): void {
 function launcherInfo(): LauncherInfo {
   return {
     pinned: Settings.pinnedFolders, outputParent: Settings.outputParent, groupByStatus: Settings.groupByStatus,
-    collapsedColumns: Settings.collapsedColumns, home: homedir(),
+    collapsedColumns: Settings.collapsedColumns, home: homedir(), forcedDestination: Settings.forcedOutputParent ?? undefined,
   }
 }
 

@@ -4,8 +4,10 @@ import { isCLI, flag, runCLI } from '../cli/run'
 import { ensure, findYTDLP, NeedsFormatting, YTDLP_MISSING } from '../core/folderMaker'
 import { migrateSettings, OLD_APP_NAME } from '../core/migrate'
 import { checkDue, DAILY_STALE_DAYS, describe, downloadsRunning, isOlderThan, isUpdating, updateYTDLP, versionForAge } from '../core/ytdlpUpdate'
+import { configureLabs, LABS_APP_NAME } from '../core/flavor'
 import { DebugLog } from './debugLog'
 import { registerFeed, startFeedTimer } from './feed'
+import { labsMenu, registerLabsIPC, setUpLabsFolders } from './labs'
 import { buildMenu } from './menu'
 import { Settings } from './settings'
 import { MainWindow, registerIPC } from './window'
@@ -20,10 +22,19 @@ const opt = (name: string): string | null => {
   return eq ? eq.slice(name.length + 1) : flag(args, name)
 }
 
-app.setName('Yaseen Video Notes')
+/** The 🧪 Labs build (`npm run package:labs`): its own name / bundle id / userData, read-only on the vault (docs/labs.md). */
+const LABS = __VN_FLAVOR__ === 'labs'
+app.setName(LABS ? LABS_APP_NAME : 'Yaseen Video Notes')
 
 /** `VIDEO_NOTES_<name>`, or the old `FOLLOW_ALONG_<name>` environment variable. */
 const env = (name: string): string | undefined => process.env[`VIDEO_NOTES_${name}`] ?? process.env[`FOLLOW_ALONG_${name}`]
+
+if (LABS) {
+  // Labs' own settings folder (never the normal app's), and THE read-only guard (core/flavor.ts) for the vault
+  const ud = opt('--user-data-dir') ?? env('USER_DATA') ?? join(app.getPath('appData'), LABS_APP_NAME)
+  app.setPath('userData', ud)
+  configureLabs(app.getPath('userData'), (l) => DebugLog.log(l))
+}
 
 if (isCLI(args)) {
   app.dock?.hide()
@@ -46,22 +57,31 @@ function startApp(): void {
   // Play without a click (the page starts the video with Space / the app's commands).
   app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
   // Look like Chrome, so YouTube serves its normal (full quality) player.
-  app.userAgentFallback = app.userAgentFallback.replace(/\s(Electron|follow-along|Follow Along|FollowAlong|yaseen-video-notes|Yaseen Video Notes|YaseenVideoNotes)\/\S+/g, '')
+  app.userAgentFallback = app.userAgentFallback.replace(/\s(Electron|follow-along|Follow Along|FollowAlong|yaseen-video-notes-labs|Yaseen Video Notes Labs|yaseen-video-notes|Yaseen Video Notes|YaseenVideoNotes)\/\S+/g, '')
 
   let main: MainWindow | null = null
   registerIPC(() => main)
   registerFeed(() => main)
+  registerLabsIPC(() => main?.pushState())
 
   app.whenReady().then(async () => {
     // First launch under the new name: carry over the "Follow Along" settings (read-only on the old folder).
-    if (!userData) {
+    // (Not in Labs: it starts with its own, fresh settings.)
+    if (!userData && !LABS) {
       try {
         if (migrateSettings(join(app.getPath('appData'), OLD_APP_NAME), app.getPath('userData'))) DebugLog.log(`copied the ${OLD_APP_NAME} settings`)
       } catch (e) { DebugLog.log(`could not copy the ${OLD_APP_NAME} settings: ${e}`) }
     }
     Settings.load()
-    if (!userData && !openPath && !env('NO_IMPORT')) Settings.importFromSwift()
-    buildMenu(() => main, { updateYTDLP: () => void updateYTDLPNow(() => main) })
+    if (LABS) setUpLabsFolders()
+    else if (!userData && !openPath && !env('NO_IMPORT')) Settings.importFromSwift()
+    buildMenu(() => main, {
+      updateYTDLP: () => void updateYTDLPNow(() => main),
+      extraMenus: LABS ? [labsMenu({
+        showLabs: () => main?.showLabs(),
+        analyze: () => main?.activeSession?.run(`document.getElementById('labsAnalyze') && document.getElementById('labsAnalyze').click()`),
+      })] : [],
+    })
     const rendererURL = !app.isPackaged && process.env.ELECTRON_RENDERER_URL ? process.env.ELECTRON_RENDERER_URL : null
     main = new MainWindow({
       remember: openPath === null,

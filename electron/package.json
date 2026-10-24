@@ -13,7 +13,12 @@
     "test": "vitest run",
     "package": "node scripts/package.mjs",
     "install-app": "node scripts/install-app.mjs",
-    "cli": "node out/main/cli.js"
+    "cli": "node out/main/cli.js",
+    "dev:labs": "VIDEO_NOTES_FLAVOR=labs electron-vite dev --entry out-labs/main/index.js",
+    "build:labs": "VIDEO_NOTES_FLAVOR=labs electron-vite build",
+    "package:labs": "node scripts/package.mjs --labs",
+    "install-app:labs": "node scripts/install-app.mjs --labs",
+    "cli:labs": "node out-labs/main/cli.js"
   },
   "devDependencies": {
     "@types/node": "26.2.0",

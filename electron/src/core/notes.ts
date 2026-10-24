@@ -309,7 +309,8 @@ export function changeFile(path: string, change: (md: string) => string): { befo
     let after = change(before)
     if (after !== before) {
       after = ensureGuide(after)
-      atomicWrite(path, after)
+      // skipped in Labs (read-only vault): then the file still holds `before`
+      if (!atomicWrite(path, after)) after = before
     }
     return { before, after }
   })

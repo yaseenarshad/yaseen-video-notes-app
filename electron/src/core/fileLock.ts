@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { closeSync, openSync, readFileSync, statSync, unlinkSync, writeSync } from 'node:fs'
 import { hostname } from 'node:os'
 import { basename } from 'node:path'
+import { writable } from './flavor'
 
 /**
  * A lock next to a transcript .md (`<md>.lock`) that every writer of that .md takes: the app (note
@@ -108,6 +109,8 @@ function takeOver(p: string, seen: LockInfo | null, now: number, staleMs: number
 
 /** Takes the lock for `path` (waits up to ~10 s); returns the release function. */
 export function acquireLock(path: string, opts: LockOptions = {}): () => void {
+  // Labs (read-only vault): a lock file is a write too; the writes inside are skipped by atomicWrite
+  if (!writable(path)) return () => {}
   const p = lockPath(path)
   // VIDEO_NOTES_LOCK_WAIT_MS: for tests of the CLI's "file busy" exit code
   const envWait = Number(process.env.VIDEO_NOTES_LOCK_WAIT_MS)

@@ -496,6 +496,15 @@ it). The sidebar badge counts visible videos published after the Feed was last o
 is deliberate: right-click a channel chip → Unfollow… → type `unfollow` (the button stays disabled until then; Esc
 cancels). Right-click a Library row → Follow this channel (resolved from the video's link).
 
+## 8. 🧪 Labs
+
+A separate experimental app, **Yaseen Video Notes Labs** (own bundle id and settings), built from the same code with
+`npm run package:labs`. It reads the vault and never writes to it (notes, status, board order, the agent guide and the
+Feed's files are not saved; the resume spot is kept in Labs' own settings folder), puts videos added from a link in its
+own `labs-library`, and hosts experiments that can be switched on and off in its 🧪 Labs page — including an extractive
+AI analysis of a video (highlights, pull quotes, questions, claims as spans of the transcript's own words). Everything
+about it: [labs.md](labs.md).
+
 ## Hotkeys
 
 | Key | Action |

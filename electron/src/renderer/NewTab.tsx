@@ -4,6 +4,7 @@ import { arrangeColumn, cardId, moveCard, newestFirst, type BoardOrder, type Dro
 import type { FeedState, FolderEntry, LauncherInfo, LibraryView, MenuSpec, Source, WorkEvent } from '../shared/api'
 import { Board, Thumb, type BoardColumn } from './Board'
 import { FeedView } from './Feed'
+import { LabsPanel, LabsSlot, useLabs } from './labs'
 
 /** yaseen-docs-app's default status options (core/status.ts DEFAULT_OPTIONS). */
 const DEFAULT_OPTIONS = ['1-Backlog', '2-Todo', '3-In-Progress', '4-Done']
@@ -72,6 +73,9 @@ export function NewTab({ tabId, active, work, clearWork }: { tabId: string; acti
   /** The 📺 Feed is shown instead of the Library list. */
   const [feedOn, setFeedOn] = useState(false)
   const [feed, setFeed] = useState<FeedState | null>(null)
+  /** The 🧪 Labs page is shown instead of the Library list (Labs flavor only). */
+  const [labsOn, setLabsOn] = useState(false)
+  const labs = useLabs()
   const [notice, setNotice] = useState<string | null>(null)
   const filterRef = useRef<HTMLInputElement>(null)
   const linkRef = useRef<HTMLInputElement>(null)
@@ -85,7 +89,7 @@ export function NewTab({ tabId, active, work, clearWork }: { tabId: string; acti
       setInfo(i)
       setGroup(i.groupByStatus)
       setCollapsedCols(new Set(i.collapsedColumns))
-      setDestination(i.pinned[0] ?? i.outputParent)
+      setDestination(i.forcedDestination ?? i.pinned[0] ?? i.outputParent)
       setSource(i.pinned[0] ? { kind: 'folder', path: i.pinned[0] } : { kind: 'recent' })
     })
   }, [])
@@ -107,7 +111,10 @@ export function NewTab({ tabId, active, work, clearWork }: { tabId: string; acti
     window.addEventListener('focus', onFocus)
     return () => window.removeEventListener('focus', onFocus)
   }, [active, reload])
-  useEffect(() => window.fa.onCommand((c) => { if (c.kind === 'focusFilter' && c.tabId === tabId) { filterRef.current?.focus(); filterRef.current?.select() } }), [tabId])
+  useEffect(() => window.fa.onCommand((c) => {
+    if (c.kind === 'focusFilter' && c.tabId === tabId) { filterRef.current?.focus(); filterRef.current?.select() }
+    if (c.kind === 'showLabs' && c.tabId === tabId) { setFeedOn(false); setLabsOn(true) }
+  }), [tabId])
 
   // the 📺 Feed: its state (and the sidebar badge) comes from the main process
   useEffect(() => {
@@ -123,9 +130,10 @@ export function NewTab({ tabId, active, work, clearWork }: { tabId: string; acti
 
   const choose = (s: Source) => {
     setFeedOn(false)
+    setLabsOn(false)
     setView('board')
     setSource(s)
-    if (s.kind === 'folder') setDestination(s.path)
+    if (s.kind === 'folder' && !info?.forcedDestination) setDestination(s.path)
   }
 
   const filtered = useMemo(() => {
@@ -351,7 +359,9 @@ export function NewTab({ tabId, active, work, clearWork }: { tabId: string; acti
     <div className="newtab">
       <nav className="sidebar">
         <SideItem icon={<span className="sideitem__emoji">📺</span>} label="Feed" on={feedOn} badge={feed?.newCount ?? 0}
-          title="The latest videos of channels you follow (not in your Library until you add them)" onClick={() => setFeedOn(true)} />
+          title="The latest videos of channels you follow (not in your Library until you add them)" onClick={() => { setLabsOn(false); setFeedOn(true) }} />
+        {labs && <SideItem icon={<span className="sideitem__emoji">🧪</span>} label="Labs" on={labsOn}
+          title="Experiments: switch them on and off, and how to try each one" onClick={() => { setFeedOn(false); setLabsOn(true) }} />}
         <div className="sidebar__divider" />
         <div className="sidebar__section">Library</div>
         <SideItem icon={Icon.clock} label="Recent" on={!feedOn && source?.kind === 'recent'} onClick={() => choose({ kind: 'recent' })} />
@@ -370,14 +380,16 @@ export function NewTab({ tabId, active, work, clearWork }: { tabId: string; acti
             <span className="linkbox__icon">{Icon.link}</span>
             <input ref={linkRef} className="linkbox__input" placeholder="Paste a YouTube link and press Enter to follow along" value={link}
               spellCheck={false} onChange={(e) => { setLink(e.target.value); setLinkError('') }} onKeyDown={(e) => { if (e.key === 'Enter') create() }} />
-            <button className="chip" title={`New folders go in ${tilde(destination, info?.home ?? '')}`} onClick={destinationMenu}>→ {name(destination)}</button>
+            <button className="chip" title={info?.forcedDestination ? `Labs puts new videos in its own library (${tilde(destination, info?.home ?? '')}), never in your vault` : `New folders go in ${tilde(destination, info?.home ?? '')}`}
+              onClick={info?.forcedDestination ? undefined : destinationMenu}>→ {name(destination)}</button>
             <button className="createbtn" disabled={!parseYouTubeID(link)} onClick={create}>Create</button>
           </div>
           {linkError && <div className="linkerror">{linkError}</div>}
         </div>
-        {feedOn ? (
+        {labsOn ? <LabsPanel /> : feedOn ? (
           <FeedView feed={feed} tabId={tabId} destination={destination} onOpenFolder={(f) => { clearWork(); window.fa.openFolder(tabId, f) }} />
         ) : (<>
+        <LabsSlot area="newtab" tabId={tabId} rows={filtered} source={source} />
         <div className="listheader">
           <h2 className="listheader__title">{title}</h2>
           {loading && <span className="spinner" />}

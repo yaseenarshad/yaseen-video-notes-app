@@ -4,6 +4,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { atomicWrite } from '../core/atomic'
 import { withFileLock } from '../core/fileLock'
+import { mayWrite } from '../core/flavor'
 import {
   capShortsCache, channelURL, dayOf, encodeHidden, expandHome, followInMarkdown, HIDDEN_FILE, hideVideo, libraryIndex, mergeVideos,
   needsShortsCheck, newCount, parseHidden, parseSubscriptions, resolveBareLine, SUBSCRIPTIONS_FILE, SUBSCRIPTIONS_TEMPLATE, thumbnailURL,
@@ -96,7 +97,8 @@ class FeedService {
   /** Creates the folder and the two files when missing (never touches other files there), and watches them. */
   private ensureFiles(): void {
     try {
-      if (!existsSync(this.folder)) mkdirSync(this.folder, { recursive: true })
+      // Labs (read-only): reads the user's real feed folder, never creates or changes it (the writes below are skipped too)
+      if (!existsSync(this.folder) && mayWrite(this.folder, 'create feed folder')) mkdirSync(this.folder, { recursive: true })
       if (!existsSync(this.subscriptionsFile)) atomicWrite(this.subscriptionsFile, SUBSCRIPTIONS_TEMPLATE)
       if (!existsSync(this.hiddenFile)) atomicWrite(this.hiddenFile, encodeHidden([]))
     } catch (e) { DebugLog.log(`feed: could not set up ${this.folder}: ${e}`) }

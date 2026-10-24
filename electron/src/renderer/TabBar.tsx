@@ -24,6 +24,7 @@ export function TabBar({ state }: { state: ShellState }) {
         </button>
       </div>
       <div className="tabbar-tail" />
+      {state.flavor === 'labs' && <span className="labsbadge" title="Yaseen Video Notes Labs — experiments; read-only on your vault">LABS</span>}
     </div>
   )
 }

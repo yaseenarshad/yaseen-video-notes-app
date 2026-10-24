@@ -1,12 +1,23 @@
 // The shell renderer's API (tab bar + New Tab pages), exposed by src/preload/shell.ts as window.fa.
 import type { BoardOrder, DropSpot } from '../core/board'
 import type { FolderEntry } from '../core/folderMaker'
+import type { ExperimentMeta } from '../labs/registry'
 
 export type { BoardOrder, DropSpot, FolderEntry }
 
 export type TabKind = 'new' | 'player'
 export interface TabInfo { id: string; kind: TabKind; title: string; tooltip: string }
-export interface ShellState { tabs: TabInfo[]; active: string | null; scale: number }
+export interface ShellState { tabs: TabInfo[]; active: string | null; scale: number; flavor?: 'normal' | 'labs' }
+
+/** The 🧪 Labs state (Labs flavor only; `labsInfo()` is null in the normal app). */
+export interface LabsInfo {
+  readOnly: boolean
+  /** Labs' userData folder (its cache, settings, labs-library). */
+  userData: string
+  /** Where "Add to Library" puts new videos in Labs. */
+  library: string
+  experiments: (ExperimentMeta & { enabled: boolean })[]
+}
 
 export type Source = { kind: 'recent' } | { kind: 'inProgress' } | { kind: 'folder'; path: string }
 
@@ -23,7 +34,11 @@ export interface MenuSpec {
 }
 
 export type LibraryView = 'table' | 'board'
-export interface LauncherInfo { pinned: string[]; outputParent: string; groupByStatus: boolean; collapsedColumns: string[]; home: string }
+export interface LauncherInfo {
+  pinned: string[]; outputParent: string; groupByStatus: boolean; collapsedColumns: string[]; home: string
+  /** Labs: new videos always go here (Labs' own library), never into the vault. */
+  forcedDestination?: string
+}
 
 /** A followed channel in the 📺 Feed. */
 export interface FeedChannelInfo { id: string; title: string; error: string | null; fetchedAt: string | null; videos: number }
@@ -59,7 +74,7 @@ export interface FeedState {
 }
 
 /** Main → shell commands from the app menu. */
-export type ShellCommand = { kind: 'focusFilter'; tabId: string } | { kind: 'toast'; text: string; ms?: number }
+export type ShellCommand = { kind: 'focusFilter'; tabId: string } | { kind: 'toast'; text: string; ms?: number } | { kind: 'showLabs'; tabId: string }
 
 export interface FaAPI {
   state(): Promise<ShellState>
@@ -102,4 +117,11 @@ export interface FaAPI {
   feedFollowFolder(folder: string): Promise<string | null>
   feedUnfollow(channelId: string): void
   feedHide(videoId: string): void
+  // 🧪 Labs (null / no-ops in the normal app)
+  labsInfo(): Promise<LabsInfo | null>
+  labsSetEnabled(id: string, on: boolean): Promise<LabsInfo | null>
+  /** Analyzed videos: id → { createdAt, highlights }. */
+  labsAnalyzed(): Promise<Record<string, { createdAt: string; highlights: number }>>
+  /** Calls an experiment's main-process hook (`experiments/<id>/main.ts` → ipc[method]). */
+  labsCall(id: string, method: string, ...args: unknown[]): Promise<unknown>
 }

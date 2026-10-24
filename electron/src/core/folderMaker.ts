@@ -7,6 +7,7 @@ import { parseVTT } from './captions'
 import { atomicWrite } from './atomic'
 import { isLockFile, withFileLock } from './fileLock'
 import { FollowAlongError, YTDLPError } from './errors'
+import { mayWrite, ReadOnlyError } from './flavor'
 import { healAfterFailure, toolEnv, withSelfHeal } from './ytdlpUpdate'
 import * as Notes from './notes'
 import { fraction, finished, furthest, readProgress, type Progress } from './progress'
@@ -219,9 +220,12 @@ export async function make(input: string, parent: string, opts: { date?: Date; a
   const progress = opts.progress ?? (() => {})
   const id = parseYouTubeID(input)
   if (!id) throw new FollowAlongError(`That does not look like a YouTube link: ${input}`)
+  // Labs (read-only vault): a new folder only inside Labs' own userData (labs-library)
+  const existingHere = existsSync(parent) ? existingFolder(id, parent) : null
+  if (!existingHere && !mayWrite(parent, 'create folder in')) throw new ReadOnlyError(`Labs is read-only: it does not make folders in ${parent}. New videos go in Labs' own library.`)
   if (!existsSync(parent)) mkdirSync(parent, { recursive: true })
   else if (!isDir(parent)) throw new FollowAlongError(`${parent} is not a folder.`)
-  const existing = existingFolder(id, parent)
+  const existing = existingHere
   if (existing) {
     progress(`Found an existing folder: ${basename(existing)}`)
     return ensure(existing, { allowFormat: opts.allowFormat ?? true, progress })
@@ -267,6 +271,8 @@ export async function ensure(path: string, opts: { allowFormat?: boolean; progre
   if (!id) throw new FollowAlongError(`${basename(mdPath)} has no "- url:" line with a YouTube link.`)
   if (count === 0 && withoutComments(md).includes('💬')) throw new FollowAlongError(`${basename(mdPath)} has notes but no timestamped paragraphs, so it was not changed.`)
   if (count === 0 && !allowFormat) throw new NeedsFormatting(folder, mdPath, backupPath(mdPath))
+  // setting a folder up writes its .md / sidecar: Labs (read-only vault) cannot
+  if (!mayWrite(side, 'set up')) throw new ReadOnlyError(`${basename(folder)} needs setup (word timing), which writes into the folder — Labs is read-only. Open it once in Yaseen Video Notes first.`)
   const { info, vtt } = await download(id, progress)
   const made = format(info, vtt)
   if (count === 0) {

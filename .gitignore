@@ -3,6 +3,8 @@ electron/node_modules/
 electron/out/
 electron/dist/
 electron/dist-builder/
+electron/out-labs/
+electron/dist-builder-labs/
 
 # macOS
 .DS_Store

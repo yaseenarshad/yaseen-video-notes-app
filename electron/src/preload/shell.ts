@@ -39,6 +39,10 @@ const api: FaAPI = {
   feedFollowFolder: (folder) => ipcRenderer.invoke('feed:followFolder', folder),
   feedUnfollow: (channelId) => ipcRenderer.send('feed:unfollow', channelId),
   feedHide: (videoId) => ipcRenderer.send('feed:hide', videoId),
+  labsInfo: () => ipcRenderer.invoke('labs:info'),
+  labsSetEnabled: (id, on) => ipcRenderer.invoke('labs:setEnabled', id, on),
+  labsAnalyzed: () => ipcRenderer.invoke('labs:analyzed'),
+  labsCall: (id, method, ...args) => ipcRenderer.invoke('labs:call', id, method, args),
 }
 
 contextBridge.exposeInMainWorld('fa', api)

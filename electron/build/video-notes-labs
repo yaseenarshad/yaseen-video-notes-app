@@ -1,0 +1,15 @@
+#!/bin/sh
+# video-notes-labs: the 🧪 Labs app's CLI without its window — mainly `video-notes-labs analyze <video folder>`
+# (docs/labs.md). Read-only on the vault like the Labs app: it writes only into Labs' userData
+# (~/Library/Application Support/Yaseen Video Notes Labs, or --user-data-dir / VIDEO_NOTES_USER_DATA).
+# Installed by `npm run install-app:labs` as ~/.local/bin/video-notes-labs.
+# VIDEO_NOTES_LABS_APP=<path to a .app> runs another build (e.g. electron/dist/Yaseen Video Notes Labs.app).
+APP="${VIDEO_NOTES_LABS_APP:-/Applications/Yaseen Video Notes Labs.app}"
+BIN="$APP/Contents/MacOS/Yaseen Video Notes Labs"
+CLI="$APP/Contents/Resources/app.asar/out-labs/main/cli.js"
+if [ ! -x "$BIN" ]; then
+  echo "video-notes-labs: no app at $APP (install it with npm run install-app:labs, or set VIDEO_NOTES_LABS_APP)" >&2
+  exit 2
+fi
+export ELECTRON_RUN_AS_NODE=1
+exec "$BIN" "$CLI" "$@"

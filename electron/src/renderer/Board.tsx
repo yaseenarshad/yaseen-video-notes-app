@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState, type DragEvent, type MouseEvent } from 'react'
 import { arrangeColumn, cardId, columnLabel, newestFirst, type BoardOrder, type DropSpot } from '../core/board'
 import type { FolderEntry } from '../shared/api'
+import { LabsSlot } from './labs'
 
 /** The status-less column (cards with no status, or one the folder's options do not have). Not a drop target. */
 const NONE = '\u0000none'
@@ -206,6 +207,7 @@ function Card({ r, selected, dragging, onClick, onContextMenu, onDragStart, onDr
             {r.mochiOpen > 0 && <span className="bcard__mochi" title={`${r.mochiOpen} open #mochi ${r.mochiOpen === 1 ? 'note' : 'notes'} (flashcards to make)`}>🃏 {r.mochiOpen}</span>}
           </div>
         )}
+        <LabsSlot area="board" row={r} />
       </div>
     </div>
   )

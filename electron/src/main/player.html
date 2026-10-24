@@ -239,6 +239,7 @@
   .composer textarea { width: 100%; min-height: 54px; resize: none; overflow-y: hidden; font: inherit; color: var(--ink);
     background: transparent; border: 0; outline: 0; display: block; }
   .composer .hint { font-size: 12px; color: var(--muted); }
+  .composer .rohint { font: 600 12px system-ui, sans-serif; color: var(--accent); margin-bottom: 4px; }
 
   .selbtn { position: fixed; z-index: 5; font: 600 13px system-ui, sans-serif; padding: 5px 10px; border-radius: 999px;
     border: 0; background: var(--note-edge); color: #fff; cursor: pointer; box-shadow: 0 4px 14px rgba(0,0,0,.2); display: none; }
@@ -740,9 +741,22 @@ $('divider').addEventListener('pointerdown', e => {
 let panelTab = CHAPTERS.length ? (PREFS.panel || 'chapters') : 'notes';
 if (!CHAPTERS.length) $('tabChapters').classList.add('hide');
 let notesList = [], noteFilter = 'all';
+// more tabs (Labs experiments: LABS.transcript.addPanelTab), each { btn, render(box) }
+const extraTabs = {};
+function addPanelTab(id, label, render) {
+  if (extraTabs[id]) { extraTabs[id].render = render; return extraTabs[id].api; }
+  const btn = document.createElement('button'); btn.textContent = label; btn.dataset.tab = id;
+  btn.onclick = () => showPanel(id);
+  document.querySelector('.ptabs').appendChild(btn);
+  const api = { el: btn, show: () => showPanel(id), refresh: () => { if (panelTab === id) showPanel(id); } };
+  extraTabs[id] = { btn, render, api };
+  return api;
+}
 function showPanel(which) {
   panelTab = which; $('tabChapters').classList.toggle('on', which === 'chapters'); $('tabNotes').classList.toggle('on', which === 'notes');
+  for (const id in extraTabs) extraTabs[id].btn.classList.toggle('on', which === id);
   const box = $('plist'); box.textContent = '';
+  if (extraTabs[which]) { try { extraTabs[which].render(box); } catch (e) { box.textContent = 'Error: ' + e.message; native({ type: 'error', message: 'panel ' + which + ': ' + e.message }); } return; }
   if (which === 'chapters') {
     CHAPTERS.forEach((c, k) => {
       const it = document.createElement('div'); it.className = 'item'; it.dataset.k = k;
@@ -1050,6 +1064,9 @@ function openComposer(sel, edit) {
   const hint = document.createElement('div'); hint.className = 'hint';
   const qw = sel ? sel.quote.split(' ') : [];
   const short = qw.length > 15 ? qw.slice(0, 6).join(' ') + ' … ' + qw.slice(-6).join(' ') : qw.join(' ');
+  // Labs (read-only vault): say so where the note would be saved
+  const ro = PREFS.readOnly ? document.createElement('div') : null;
+  if (ro) { ro.className = 'rohint'; ro.textContent = 'Labs is read-only — notes aren’t saved'; }
   hint.textContent = edit ? '✎ edit note at ' + fmt(edit.t) + (edit.end != null ? '–' + fmt(edit.end) : '') + ' — Enter to save, Esc to cancel'
                    : sel ? '💬 note on ' + fmt(sel.start) + '–' + fmt(sel.end) + ' “' + short + '” — Enter to save, Esc to cancel'
                          : '💬 note at ' + fmt(time) + ' — Enter to save, Esc to cancel';
@@ -1071,6 +1088,7 @@ function openComposer(sel, edit) {
   xb.title = 'Cancel (Esc)'; xb.setAttribute('aria-label', 'Cancel note');
   xb.addEventListener('mousedown', e => e.preventDefault());   // keep the focus in the note
   c.append(cats, hint, ta, xb);
+  if (ro) c.insertBefore(ro, hint);
   // inline where the saved note will appear: after the highlight's last word, or after the word at
   // this moment (the same place noteAnchor gives the saved note); or in place of the note being edited
   if (edit && edit.el && edit.el.isConnected) { edit.el.after(c); edit.el.style.display = 'none'; }
@@ -1115,7 +1133,7 @@ function openComposer(sel, edit) {
         const r = await fetch('/api/notes', { method: 'POST', body: JSON.stringify(body) });
         const out = await r.json();
         if (!r.ok) throw new Error(out.error || r.status);
-        close(); renderNotes(out); toast(category === 'mochi' ? 'Mochi note saved to .md' : 'Note saved to .md');
+        close(); renderNotes(out); toast(PREFS.readOnly ? 'Labs is read-only — note not saved' : category === 'mochi' ? 'Mochi note saved to .md' : 'Note saved to .md', PREFS.readOnly ? 3000 : undefined);
         if (PREFS.noteCategory !== category) savePrefs({ noteCategory: category });   // the next note starts with this one
         native({ type: 'note-saved', para, time, end: body.end, quote: body.quote, text, category });
       } catch (err) { toast('Could not save: ' + err.message); native({ type: 'error', message: 'note: ' + err.message }); }
@@ -1178,6 +1196,7 @@ async function noteChange(kind, n, extra) {
     const out = await r.json();
     if (!r.ok) throw new Error(out.error || r.status);
     renderNotes(out.notes); native({ type: 'note-' + kind, para: n.para, index: n.index });
+    if (PREFS.readOnly) { toast('Labs is read-only — not saved', 3000); return false; }
     return true;
   } catch (err) {
     toast(String(err.message).startsWith('Note changed') ? 'Note changed in the file — try again' : 'Could not change the note: ' + err.message);
@@ -1246,6 +1265,7 @@ $('keysbtn').onclick = () => toggleSheet();
 if (!PREFS.hintShown) { setTimeout(() => toast('Press ? for shortcuts'), 1500); savePrefs({ hintShown: true }); }
 
 // ---------- keys (same as the Video Speed Controller extension) ----------
+const labsKeys = {};   // 'x' / 'shift+x' → { fn, description } (Labs experiments only)
 function handleKey(key, forwarded, repeat, shift) {
   const k = key.toLowerCase(), r = speed;
   if (k === '?') { native({ type: 'key', key: '?', forwarded: !!forwarded }); toggleSheet(); return true; }
@@ -1264,7 +1284,13 @@ function handleKey(key, forwarded, repeat, shift) {
     n: () => openComposer(selectedWords()),
     h: goHome,
   }[k];
-  if (!act) return false;
+  if (!act) {   // keys added by Labs experiments (LABS.ui.addKey); the app's own keys always win
+    const lk = labsKeys[(shift ? 'shift+' : '') + k];
+    if (!lk) return false;
+    native({ type: 'key', key: (shift ? 'shift+' : '') + k, forwarded: !!forwarded, labs: true });
+    try { lk.fn(); } catch (e) { native({ type: 'error', message: 'labs key ' + k + ': ' + e.message }); }
+    return true;
+  }
   native({ type: 'key', key: k, forwarded: !!forwarded, repeat: !!repeat });
   act();
   return true;
@@ -1291,6 +1317,17 @@ window.FA = { pause, zoom, find: openFind, toggleFocus: () => setFocus(!document
               zoomToast: text => toast(text), notice: (text, ms) => toast(text, ms), reloadVideo,
               back: () => histGo(-1), forward: () => histGo(1), home: goHome, makeHome,
               homeState: () => Object.assign(HT.view(now()), { t: now() }) };
+// ---------- for Labs (src/labs/page/api.js builds window.LABS on this; the normal app never loads it) ----------
+window.FA_INTERNAL = {
+  DATA, CHAPTERS, PREFS, P, paraEls, wordEls, starts, now, seekTo, setFollow, keepInView, togglePlay, pause, setSpeed,
+  getSpeed: () => speed, state: () => ({ para: curP, word: curW, chapter: curC, follow }), toast, actionToast, native, fmt,
+  showPanel, addPanelTab, notes: () => notesList,
+  addKey: (key, fn, description) => {   // false: the app's own key (never taken over)
+    if ([' ', 's', 'd', 'r', 'g', 'z', 'x', 'v', 'n', 'f', 'h', '?', 'arrowleft', 'arrowright', 'escape', 'shift+f', 'shift+h'].includes(key)) return false;
+    labsKeys[key] = { fn, description: description || '' }; return true;
+  },
+};
+window.dispatchEvent(new Event('fa-ready'));
 native({ type: 'ready', paras: DATA.paras.length, chapters: CHAPTERS.length });
 })();
 </script>

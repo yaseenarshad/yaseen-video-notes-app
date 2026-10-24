@@ -8,7 +8,9 @@ import { noteAnchor } from '../core/noteAnchor'
 import { advanceOnOpen } from '../core/status'
 import { decodeSidecar, type Sidecar } from '../core/transcript'
 import type { TranscriptFolder } from '../core/folderMaker'
+import { Flavor, isLabs } from '../core/flavor'
 import { DebugLog } from './debugLog'
+import { labsPlayerHTML, labsRoute, onLabsSessionOpen, videoContext } from './labs'
 import { json, LocalServer, text, type Request, type Response } from './server'
 import { Settings } from './settings'
 import PLAYER_HTML from './player.html?raw'
@@ -105,8 +107,14 @@ export class PlayerSession {
     DebugLog.log(`server http://127.0.0.1:${port}/ for ${t.markdown}`)
     // Opening a video moves an empty / Backlog / Todo status to In progress (finishing never changes it; Done is manual).
     setImmediate(() => advanceOnOpen(t.folder, t.markdown, DebugLog.log))
+    if (isLabs()) onLabsSessionOpen(s.labsContext())
     void s.view.webContents.loadURL(s.pageURL)
     return s
+  }
+
+  /** What Labs experiments know about this video (main/labs). */
+  labsContext() {
+    return videoContext({ videoId: this.sidecar.id, title: this.sidecar.title, folder: this.transcript.folder, markdown: this.transcript.markdown, sidecar: this.transcript.sidecar })
   }
 
   get pageURL(): string { return `http://localhost:${this.server.port}/` }
@@ -149,12 +157,14 @@ export class PlayerSession {
 
   // ---------- HTTP ----------
 
-  private handle(req: Request): Response {
+  private handle(req: Request): Response | Promise<Response> {
     const key = `${req.method} ${req.path}`
+    // 🧪 Labs only: the page API, experiments, analysis (main/labs)
+    if (isLabs() && req.path.startsWith('/labs/')) return labsRoute(this.labsContext(), req)
     switch (key) {
       case 'GET /':
       case 'GET /index.html':
-        return text(PLAYER_HTML, 200, 'text/html; charset=utf-8')
+        return text(isLabs() ? labsPlayerHTML(PLAYER_HTML) : PLAYER_HTML, 200, 'text/html; charset=utf-8')
       case 'GET /note-anchor.js':
         return text(NOTE_ANCHOR_JS, 200, 'text/javascript; charset=utf-8')
       case 'GET /home.js':
@@ -179,7 +189,8 @@ export class PlayerSession {
         return json({ t: p?.seconds ?? 0, home: p ? homeOf(p) : 0, dur: p?.duration ?? 0, device: other })
       }
       case 'GET /api/prefs':
-        return json(Settings.playerPrefs)
+        // Labs: the page shows "read-only" where a note would be saved (not a pref: never saved back)
+        return json(isLabs() ? { ...Settings.playerPrefs, readOnly: Flavor.readOnlyVault } : Settings.playerPrefs)
       case 'POST /api/prefs':
         Settings.savePlayerPrefs(req.body)
         return json({ ok: true })

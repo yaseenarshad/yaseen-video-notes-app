@@ -52,6 +52,17 @@ yt-dlp upkeep: the app updates yt-dlp itself (daily if > 14 days old, after a yt
 Homebrew tools need full paths in agent shells (`/opt/homebrew/bin/node`, `/opt/homebrew/bin/yt-dlp`).
 Do not commit unless asked.
 
+## 🧪 Labs (experimental flavor) — read [docs/labs.md](docs/labs.md) before touching it
+
+A second build, **Yaseen Video Notes Labs** (`com.yaseen.videonotes.labs`, own userData, blue icon, LABS badge):
+`npm run dev:labs | build:labs | package:labs | install-app:labs | cli:labs -- analyze <folder>`. It reads the vault
+but never writes it: ONE guard, `core/flavor.ts` (`mayWrite` / `writable`, used by `atomicWrite`, the file lock,
+folderMaker, the Feed, migrate; progress is redirected into Labs' userData). An experiment = one folder
+`src/labs/experiments/<id>/` (`meta.ts` + `player.js` | `renderer.tsx` [+ `main.ts`]), collected by
+`src/labs/registry.ts`; player scripts use only `window.LABS` (`src/labs/page/api.js`). The analysis engine
+(`src/labs/analysis/`) is extractive: spans of transcript words, validated, never model text except ≤ 6-word labels.
+Labs code is inert in the normal build (`isLabs()` false; `__VN_FLAVOR__` compiled in).
+
 ## Where things are (`electron/src/`)
 
 - `core/` — plain Node, no Electron; every file format lives here and is unit-tested

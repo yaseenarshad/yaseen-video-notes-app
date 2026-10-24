@@ -11,15 +11,22 @@
 // The first time (no settings under the new name yet) it also quits a running "Follow Along" (the app's
 // old name, bundle id com.yaseen.followalong) first, so its open tabs are saved before the new app copies
 // its settings on first launch.
+//
+// `npm run install-app:labs` (--labs) does the same for the 🧪 Labs app (docs/labs.md): packages
+// "Yaseen Video Notes Labs", quits only a running Labs (com.yaseen.videonotes.labs — never the normal app),
+// replaces /Applications/Yaseen Video Notes Labs.app and opens it. It does NOT install the `video-notes` command;
+// it installs `video-notes-labs` (build/video-notes-labs: `video-notes-labs analyze …`) into ~/.local/bin only.
 import { execFileSync } from 'node:child_process'
 import { accessSync, chmodSync, constants, copyFileSync, existsSync, mkdirSync, renameSync, rmSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const NAME = 'Yaseen Video Notes'
-const BUNDLE_ID = 'com.yaseen.videonotes'
+const LABS = process.argv.includes('--labs')
+const NAME = LABS ? 'Yaseen Video Notes Labs' : 'Yaseen Video Notes'
+const BUNDLE_ID = LABS ? 'com.yaseen.videonotes.labs' : 'com.yaseen.videonotes'
 const OLD_BUNDLE_ID = 'com.yaseen.followalong'
+const SHIM = LABS ? 'video-notes-labs' : 'video-notes'
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const built = join(root, `dist/${NAME}.app`)
 const target = `/Applications/${NAME}.app`
@@ -40,13 +47,14 @@ async function quit(id) {
 
 /** Copies the video-notes shim into each bin folder (atomic: temp file + rename); skips unwritable ones quietly. */
 function installCommand() {
-  const shim = join(root, 'build/video-notes')
-  const dirs = process.env.VIDEO_NOTES_SHIM_DIRS ? process.env.VIDEO_NOTES_SHIM_DIRS.split(':') : ['/opt/homebrew/bin', join(homedir(), '.local/bin')]
+  const shim = join(root, `build/${SHIM}`)
+  const dirs = process.env.VIDEO_NOTES_SHIM_DIRS ? process.env.VIDEO_NOTES_SHIM_DIRS.split(':')
+    : LABS ? [join(homedir(), '.local/bin')] : ['/opt/homebrew/bin', join(homedir(), '.local/bin')]
   for (const dir of dirs) {
     try {
       if (dir.startsWith(homedir())) mkdirSync(dir, { recursive: true })
       accessSync(dir, constants.W_OK)
-      const dest = join(dir, 'video-notes'), tmp = `${dest}.${process.pid}.tmp`
+      const dest = join(dir, SHIM), tmp = `${dest}.${process.pid}.tmp`
       copyFileSync(shim, tmp)
       chmodSync(tmp, 0o755)
       renameSync(tmp, dest)
@@ -57,11 +65,11 @@ function installCommand() {
 
 if (process.argv.includes('--cli-only')) { installCommand(); process.exit(0) }
 
-run(process.execPath, [join(root, 'scripts/package.mjs')])
+run(process.execPath, [join(root, 'scripts/package.mjs'), ...(LABS ? ['--labs'] : [])])
 if (!existsSync(built)) throw new Error(`not built: ${built}`)
 
-if (!existsSync(join(homedir(), 'Library/Application Support', NAME, 'settings.json'))) await quit(OLD_BUNDLE_ID)
-await quit(BUNDLE_ID)
+if (!LABS && !existsSync(join(homedir(), 'Library/Application Support', NAME, 'settings.json'))) await quit(OLD_BUNDLE_ID)
+await quit(BUNDLE_ID) // Labs: only the Labs app (the normal app keeps running)
 
 // Copy next to the target first, then swap, so /Applications never holds half an app.
 const fresh = `/Applications/.${NAME}.app.new`

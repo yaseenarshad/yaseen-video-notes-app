@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { atomicWrite } from './atomic'
+import { mayWrite } from './flavor'
 
 /**
  * The app was called "Follow Along" until it was renamed Yaseen Video Notes. Its settings folder is named
@@ -32,6 +33,7 @@ export function migrateSettings(oldDir: string, newDir: string): boolean {
     return false
   }
   data.importedFromSwift = true
+  if (!mayWrite(to, 'migrate settings')) return false // Labs: only its own userData
   mkdirSync(newDir, { recursive: true })
   atomicWrite(to, JSON.stringify(data, null, 2))
   return true

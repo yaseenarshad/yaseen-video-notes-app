@@ -2,7 +2,7 @@ import { app, Menu, type MenuItemConstructorOptions } from 'electron'
 import type { MainWindow } from './window'
 
 /** The app menus (same items and keys as the Swift app's). */
-export function buildMenu(get: () => MainWindow | null, actions: { updateYTDLP: () => void }): void {
+export function buildMenu(get: () => MainWindow | null, actions: { updateYTDLP: () => void; extraMenus?: MenuItemConstructorOptions[] }): void {
   const w = (f: (m: MainWindow) => void) => () => { const m = get(); if (m) f(m) }
   const tabs: MenuItemConstructorOptions[] = Array.from({ length: 9 }, (_, i) => ({
     label: i === 8 ? 'Last Tab' : `Tab ${i + 1}`,
@@ -13,13 +13,13 @@ export function buildMenu(get: () => MainWindow | null, actions: { updateYTDLP: 
     {
       label: app.name,
       submenu: [
-        { role: 'about', label: 'About Yaseen Video Notes' },
+        { role: 'about', label: `About ${app.name}` },
         { id: 'update-ytdlp', label: 'Update yt-dlp Now', click: () => actions.updateYTDLP() },
         { type: 'separator' },
-        { role: 'hide', label: 'Hide Yaseen Video Notes' },
+        { role: 'hide', label: `Hide ${app.name}` },
         { role: 'hideOthers' },
         { type: 'separator' },
-        { role: 'quit', label: 'Quit Yaseen Video Notes' },
+        { role: 'quit', label: `Quit ${app.name}` },
       ],
     },
     {
@@ -66,6 +66,8 @@ export function buildMenu(get: () => MainWindow | null, actions: { updateYTDLP: 
         }]),
       ],
     },
+    // the 🧪 Labs flavor adds its menu here (main/labs)
+    ...(actions.extraMenus ?? []),
     {
       label: 'Window',
       role: 'windowMenu',

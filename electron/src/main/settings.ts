@@ -32,6 +32,8 @@ interface Data {
   ytdlpCheckedAt?: string
   /** The 📺 Feed's folder, "~/…" (default DEFAULT_FEED_DIR in core/feed.ts). */
   feedDir?: string
+  /** 🧪 Labs flavor: the experiments' on/off switches (id → on); unset = the experiment's defaultOn. */
+  labsEnabled?: Record<string, boolean>
 }
 
 const NUMBER_PREFS: Record<string, [number, number]> = {
@@ -90,11 +92,16 @@ class SettingsStore {
 
   // ---------- folders ----------
 
-  get outputParent(): string { return this.d.outputParent ?? join(homedir(), 'Documents/Yaseen Video Notes') }
-  set outputParent(v: string) { this.d.outputParent = v; this.save() }
+  /** Labs flavor: new folders always go here (Labs' own library), and these folders are pinned by default. */
+  private labs: { library: string; pinned: string[] } | null = null
+  useLabsFolders(library: string, pinned: string[]): void { this.labs = { library, pinned } }
+  get forcedOutputParent(): string | null { return this.labs?.library ?? null }
+
+  get outputParent(): string { return this.labs?.library ?? this.d.outputParent ?? join(homedir(), 'Documents/Yaseen Video Notes') }
+  set outputParent(v: string) { if (this.labs) return; this.d.outputParent = v; this.save() }
 
   /** Folders pinned in the New Tab sidebar (the output folder by default). */
-  get pinnedFolders(): string[] { return (this.d.pinnedFolders ?? [this.outputParent]).filter(exists) }
+  get pinnedFolders(): string[] { return (this.d.pinnedFolders ?? this.labs?.pinned ?? [this.outputParent]).filter(exists) }
   set pinnedFolders(v: string[]) { this.d.pinnedFolders = v; this.save() }
 
   get openTabs(): string[] { return this.d.openTabs }
@@ -119,6 +126,10 @@ class SettingsStore {
 
   /** The 📺 Feed's folder (subscriptions.md, feed-hidden.json), with `~` for the home folder. */
   get feedDir(): string { return this.d.feedDir || DEFAULT_FEED_DIR }
+
+  /** 🧪 Labs: the experiments' switches (id → on; unset = the experiment's default). */
+  get labsEnabled(): Record<string, boolean> { return { ...(this.d.labsEnabled ?? {}) } }
+  setLabsEnabled(id: string, on: boolean): void { this.d.labsEnabled = { ...(this.d.labsEnabled ?? {}), [id]: on }; this.save() }
 
   get bounds(): Data['bounds'] { return this.d.bounds }
   set bounds(v: Data['bounds']) { this.d.bounds = v; this.save() }
