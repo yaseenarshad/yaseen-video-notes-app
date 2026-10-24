@@ -36,7 +36,9 @@
       '.labs-label { display: inline-block; font: 600 10.5px/1.5 system-ui, sans-serif; letter-spacing: .02em; color: #6d4bd8; border: 1px dashed #8c6cf0; border-radius: 4px; padding: 0 5px; white-space: nowrap; }',
       '.labs-label::before { content: "AI label · "; font-weight: 400; opacity: .75; }',
       '@media (prefers-color-scheme: dark) { .labs-label { color: #b9a4ff; border-color: #8c6cf0; } }',
-      '.bar .labsbtn { border-color: #8c6cf0; }',
+      '.bar .labsbtn { border-color: #8c6cf0; padding: 5px 9px; font-size: 13px; }',
+      // many experiments add panel tabs: wrap them onto a second row instead of squeezing (emoji over the label) or cutting them off
+      '.ptabs { flex-wrap: wrap; } .ptabs button { white-space: nowrap; flex: none; }',
       '.labs-ro { display: inline-block; margin-left: 6px; font: 600 10.5px/1.6 system-ui, sans-serif; color: #6d4bd8; border: 1px solid #8c6cf0; border-radius: 999px; padding: 0 7px; vertical-align: 1px; }',
     ].join('\n'));
 
