@@ -11,7 +11,7 @@ const index = (): Promise<Index> => {
   return cache.p
 }
 
-export default function AnalyzedBadge({ row }: LabsSlotProps) {
+export default function AnalyzedBadge({ row, labs }: LabsSlotProps) {
   const [info, setInfo] = useState<{ createdAt: string; highlights: number } | null>(null)
   useEffect(() => {
     let live = true
@@ -19,6 +19,8 @@ export default function AnalyzedBadge({ row }: LabsSlotProps) {
     return () => { live = false }
   }, [row?.videoId])
   if (!info) return null
+  // the Triage cards experiment shows the same count ("🎬 18 highlights · 24 min") on cards it can open: no second chip
+  if (row?.ready && labs.experiments.some((e) => e.id === 'triage-cards' && e.enabled)) return null
   return (
     <div className="bcard__meta" title={`Labs analysis from ${new Date(info.createdAt).toLocaleString()}`}>
       <span className="labs-chip">🧪 {info.highlights} highlights</span>
