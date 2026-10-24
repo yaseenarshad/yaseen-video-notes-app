@@ -307,3 +307,30 @@ Experiments by Agent B1 (each folder has a `GUIDE.md`): `highlight-reel` (▶ Re
 Read mode ⇧Q), `dense-mode` (▤ Dense, ⇧U). While the reel or Read mode is open they take the keyboard with a
 capture-phase `keydown` listener (and give it back when closed), because their keys (↑ ↓ ← → Space Esc Enter) are app keys
 that `LABS.ui.addKey` never takes over.
+
+## Additions (Agent A)
+
+Three small additions to `LABS.ui` in `src/labs/page/api.js` (block marked `// added by Agent A`), for the player
+experiments `signal-strip`, `sponsor-skip`, `chapter-sampler`, `smart-speed` and `coverage-map`:
+
+```
+LABS.ui
+  addRail(id, { width, title }) → { el, timeAt(clientY), setWidth(px), remove() }
+      a thin vertical rail along the transcript's right edge = a minimap of the whole video (top 0:00, bottom the end).
+      Rails of several experiments stand side by side; the transcript text keeps clear of them (padding follows).
+  videoBadge(id) → el     a small dark badge over the top of the video, after the speed badge (empty = hidden)
+  keyMode(fn(key, event) → true when used) → off()
+      a temporary key handler that sees keys BEFORE the app — for a mode that needs ← / → / Enter / Esc (which
+      addKey never gives out). key is lowercase ('arrowright', 'enter', 'escape', 'shift+c'); typing in inputs and
+      ⌘/⌃/⌥ combos never reach it. Call off() when the mode ends.
+```
+
+The experiments (each folder has a `GUIDE.md`: what it does, how to try it, what to judge, limits):
+
+| id | what | keys / UI | state (`LABS.store`) |
+|---|---|---|---|
+| `signal-strip` | rail: AI paragraph score (purple, smoothed) + YouTube "most replayed" (orange, own lane, only when present) + AI highlight ticks; hover = time, score, first words; click = seek | rail | — |
+| `sponsor-skip` | auto-skips SponsorBlock sponsor / selfpromo / interaction / intro / outro; "Skipped sponsor (0:42) · Undo"; ⏭ in the time column, struck-through words | "⏭ Skip n/m" popover | `categories` |
+| `chapter-sampler` | Sample mode: first 15/30/45/60 s of each chapter (10-min windows without chapters), chip "Chapter 4/22 · Sampling" | ▶ Sample, Shift+C; while sampling → ← Enter Esc 1–4 (keyMode) | `len` |
+| `smart-speed` | speed by the AI score: 0–1 skim (3.5×), 3 listen (your speed), 2 halfway; smoothed over −5…+20 s, 5 levels, 2 s hold, ≥ 8 s apart, 0.25× ramp; S/D pauses it 30 s; badge "Smart 3.5× (low signal)" | A, ⚡ Smart popover | `cfg` (on, skim, listen, lastApplied) |
+| `coverage-map` | what you heard (played continuously, any speed) vs skipped; rail (green = heard, hollow = not), ● ◐ ○ in the time column, "Coverage 64% · 38 min not heard", ◐ Coverage tab with the not-heard ranges | "◐ n%" button, ◐ Coverage tab | `<videoId>`: { heard: [[t0, t1]…] } |

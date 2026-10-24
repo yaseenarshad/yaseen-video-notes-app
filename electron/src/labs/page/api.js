@@ -155,7 +155,64 @@
       fmt: F.fmt,
       /** An AI-written label (≤ 6 words), visibly marked as one. */
       label: function (t) { return el('span', { class: 'labs-label', title: 'Written by the AI as a pointer — not a quote' }, [t]); },
+      addRail: addRail, videoBadge: videoBadge, keyMode: keyMode,   // added by Agent A (see below)
     };
+
+    // ---------- added by Agent A (signal-strip, coverage-map, smart-speed, chapter-sampler) ----------
+    // addRail(id, { width, title }) → { el, timeAt(clientY), setWidth(px), remove() }: a thin vertical rail along the transcript's
+    //   right edge — a minimap of the whole video (top = 0:00, bottom = the end). Rails of several experiments stand
+    //   side by side; the transcript text keeps clear of them.
+    // videoBadge(id) → el: a small dark badge over the top of the video, after the speed badge (empty = hidden).
+    // keyMode(fn(key, event) → true when used) → off(): a temporary key handler that sees keys BEFORE the app
+    //   (e.g. ←/→/Enter/Esc while a mode is on); typing in inputs and ⌘/⌃/⌥ combos are never passed to it.
+    css('labs-agent-a', [
+      '.labs-rails { position: absolute; top: 46px; bottom: 14px; right: 14px; z-index: 3; display: flex; gap: 4px; pointer-events: none; }',
+      '.labs-rail { position: relative; height: 100%; pointer-events: auto; border-radius: 4px; }',
+      '.rwrap.labs-railed .tx { padding-right: calc(32px + var(--labs-rails-w, 0px)); }',
+      '.labs-vbadges { position: absolute; top: 10px; left: 72px; right: 56px; z-index: 2; display: flex; flex-wrap: wrap; gap: 6px; pointer-events: none; }',
+      '.labs-vbadge { font: 600 12.5px/1.45 system-ui, sans-serif; color: #fff; background: rgba(0,0,0,.66); padding: 3px 8px; border-radius: 6px; pointer-events: auto; white-space: nowrap; }',
+      '.labs-vbadge:empty { display: none; }',
+    ].join('\n'));
+    var railBox = null;
+    function addRail(id, o) {
+      o = o || {};
+      if (!railBox) {
+        var wrap = (paraEls[0] && paraEls[0].closest('.rwrap')) || document.body;
+        railBox = el('div', { class: 'labs-rails' }); wrap.appendChild(railBox); wrap.classList.add('labs-railed');
+      }
+      var r = el('div', { class: 'labs-rail', 'data-rail': id, title: o.title || null, style: { width: (o.width || 12) + 'px' } });
+      railBox.appendChild(r);
+      function fit() { if (railBox.parentNode) railBox.parentNode.style.setProperty('--labs-rails-w', (railBox.children.length ? railBox.offsetWidth + 10 : 0) + 'px'); }
+      fit();
+      return {
+        el: r,
+        timeAt: function (clientY) { var b = r.getBoundingClientRect(); return Math.max(0, Math.min(1, (clientY - b.top) / b.height)) * video.duration(); },
+        setWidth: function (w) { r.style.width = w + 'px'; fit(); },
+        remove: function () { r.remove(); fit(); },
+      };
+    }
+    var badgeBox = null;
+    function videoBadge(id) {
+      if (!badgeBox) {
+        var sp = document.getElementById('speed'), host = sp && sp.parentNode;
+        badgeBox = el('div', { class: 'labs-vbadges' });
+        if (host) host.appendChild(badgeBox); else { badgeBox.style.position = 'fixed'; document.body.appendChild(badgeBox); }
+      }
+      var b = el('div', { class: 'labs-vbadge', 'data-badge': id });
+      badgeBox.appendChild(b);
+      return b;
+    }
+    function keyMode(fn) {
+      var h = function (e) {
+        if (e.metaKey || e.ctrlKey || e.altKey || /TEXTAREA|INPUT|SELECT/.test(e.target.tagName) || e.target.isContentEditable) return;
+        var k = (e.shiftKey ? 'shift+' : '') + String(e.key).toLowerCase();
+        var used = false;
+        try { used = fn(k, e); } catch (x) { LABS.log('keyMode error', String(x)); }
+        if (used) { e.preventDefault(); e.stopImmediatePropagation(); }
+      };
+      window.addEventListener('keydown', h, true);
+      return function () { window.removeEventListener('keydown', h, true); };
+    }
 
     function store(id) {
       var base = '/labs/state/' + encodeURIComponent(id);
