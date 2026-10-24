@@ -152,6 +152,8 @@
       fmt: F.fmt,
       /** An AI-written label (≤ 6 words), visibly marked as one. */
       label: function (t) { return el('span', { class: 'labs-label', title: 'Written by the AI as a pointer — not a quote' }, [t]); },
+      // added by mochi-candidates: text → the system clipboard (the app's own copy message, like "Copy note")
+      copy: function (t) { F.native({ type: 'copy', text: String(t) }); },
     };
 
     function store(id) {
@@ -184,6 +186,12 @@
         addPanelTab: function (id, label, render) { return F.addPanelTab(id, label, function (box) { render(box, LABS); }); },
       },
       analysis: analysis,
+      // added by mochi-candidates: the user's notes as the player shows them (read-only copies, sorted by time)
+      notes: function () {
+        return (F.notes ? F.notes() : []).map(function (n) {
+          return { para: n.para, time: n.time, end: n.end == null ? null : n.end, t: n.t, text: n.text, quote: n.quote || null, category: n.category, resolved: !!n.resolved };
+        });
+      },
       ui: ui,
       store: store,
     };

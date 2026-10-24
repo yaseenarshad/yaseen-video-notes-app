@@ -208,6 +208,19 @@ LABS.store(experimentId) → { get(key?), set(key, value) }
 Example of the pattern end to end: `experiments/analysis-inspector/` (a 🧪 Analysis panel tab listing the analysis,
 each item with its transcript words; click = seek, hover = words marked in the transcript).
 
+### Additions (Agent B2)
+
+Two small additions to `src/labs/page/api.js` (marked `// added by mochi-candidates`):
+
+```
+LABS.notes() → [{ para, time, end, t, text, quote, category: 'general'|'mochi', resolved }]   the user's notes as the
+               player shows them (read-only copies, by time; time null = a note without a time)
+LABS.ui.copy(text)   text → the system clipboard (the app's own copy message, like right-click → Copy note)
+```
+
+Experiments using them: `mochi-candidates` (marks candidates you already noted; "Copy note line" / "Copy all").
+In tests, stub the clipboard with `LABS.ui.copy = (t) => …` (experiments call it at click time).
+
 ## 4. The analysis engine
 
 ```bash
