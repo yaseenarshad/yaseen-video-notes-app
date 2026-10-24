@@ -30,6 +30,8 @@ export interface SessionOptions {
   preload: string
   zoom: number
   muted: boolean
+  /** Labs launch flag: the page opens at `#<hash>` (e.g. "labs=reel"). */ // added by triage-cards
+  hash?: string
 }
 
 /**
@@ -108,7 +110,7 @@ export class PlayerSession {
     // Opening a video moves an empty / Backlog / Todo status to In progress (finishing never changes it; Done is manual).
     setImmediate(() => advanceOnOpen(t.folder, t.markdown, DebugLog.log))
     if (isLabs()) onLabsSessionOpen(s.labsContext())
-    void s.view.webContents.loadURL(s.pageURL)
+    void s.view.webContents.loadURL(s.pageURL + (opts.hash ? '#' + opts.hash : '')) // hash: added by triage-cards
     return s
   }
 
