@@ -110,10 +110,11 @@ export const NO_MARK = 'nv-no-yasin-mark'
 
 // ---------- list item markers ----------
 
-const MARK_RE = /<!--\s*(p|slide|note):([\w.-]+)((?:\s+[a-z]+:[\w.]*)*)\s*-->/g
+const MARK_RE = /<!--\s*(p|slide-title|slide|note):([\w.-]+)((?:\s+[a-z]+:[\w.]*)*)\s*-->/g
 interface Md { type: string; value?: string; children?: Md[]; [k: string]: unknown }
-interface Markers { nvP: number | null; nvSlide: number | null; nvT: number | null; nvO: number | null; nvNotes: string | null }
-const NO_MARKERS: Markers = { nvP: null, nvSlide: null, nvT: null, nvO: null, nvNotes: null }
+/** nvSlide = a slide image bullet; nvSlideRef = slide-only text `(slide)`; nvSlideTitle = a heading from a slide title. */
+interface Markers { nvP: number | null; nvSlide: number | null; nvSlideRef: number | null; nvSlideTitle: number | null; nvT: number | null; nvO: number | null; nvNotes: string | null }
+const NO_MARKERS: Markers = { nvP: null, nvSlide: null, nvSlideRef: null, nvSlideTitle: null, nvT: null, nvO: null, nvNotes: null }
 
 /** Reads the marker comments of an html value (null when it holds anything else). */
 function readMarkers(value: string, into: Markers): boolean {
@@ -122,6 +123,7 @@ function readMarkers(value: string, into: Markers): boolean {
     const fields = Object.fromEntries(m[3].trim().split(/\s+/).filter(Boolean).map((f) => f.split(':') as [string, string]))
     if (m[1] === 'p') into.nvP = Number(m[2])
     if (m[1] === 'slide') into.nvSlide = Number(m[2])
+    if (m[1] === 'slide-title') into.nvSlideTitle = Number(m[2])
     if (m[1] === 'note') into.nvNotes = into.nvNotes ? `${into.nvNotes},${m[2]}` : m[2]
     if (fields.t !== undefined && Number.isFinite(Number(fields.t))) into.nvT = Number(fields.t)
     if (fields.o !== undefined && Number.isFinite(Number(fields.o))) into.nvO = Number(fields.o)
@@ -148,6 +150,7 @@ function takeMarkers(item: Md): Markers {
     break
   }
   for (const v of found) readMarkers(v, out)
+  if (out.nvP !== null && out.nvSlide !== null) { out.nvSlideRef = out.nvSlide; out.nvSlide = null }   // text from a slide, not the slide
   const tail = kids[kids.length - 1]
   if (found.length && tail?.type === 'text' && typeof tail.value === 'string') tail.value = tail.value.replace(/[ \t]+$/, '')
   return out
@@ -162,7 +165,7 @@ const listItemMarkers = extendListItemSchemaForTask.extendSchema((prev) => (ctx)
     content: 'block+',   // as createCrepe does: image bullets and `* - nested` round-trip
     attrs: {
       ...base.attrs,
-      nvP: { default: null }, nvSlide: { default: null }, nvT: { default: null }, nvO: { default: null }, nvNotes: { default: null },
+      nvP: { default: null }, nvSlide: { default: null }, nvSlideRef: { default: null }, nvSlideTitle: { default: null }, nvT: { default: null }, nvO: { default: null }, nvNotes: { default: null },
     },
     parseDOM: (base.parseDOM ?? []).map((rule) => ({
       ...rule,
@@ -170,13 +173,13 @@ const listItemMarkers = extendListItemSchemaForTask.extendSchema((prev) => (ctx)
         const a = typeof rule.getAttrs === 'function' ? (rule.getAttrs as (d: unknown) => Record<string, unknown> | false | null)(dom) : {}
         if (a === false) return false
         const d = typeof dom === 'string' ? {} as DOMStringMap : dom.dataset
-        return { ...(a ?? {}), nvP: numAttr(d.nvP), nvSlide: numAttr(d.nvSlide), nvT: numAttr(d.nvT), nvO: numAttr(d.nvO), nvNotes: d.nvNotes || null }
+        return { ...(a ?? {}), nvP: numAttr(d.nvP), nvSlide: numAttr(d.nvSlide), nvSlideRef: numAttr(d.nvSlideRef), nvSlideTitle: numAttr(d.nvSlideTitle), nvT: numAttr(d.nvT), nvO: numAttr(d.nvO), nvNotes: d.nvNotes || null }
       },
     })),
     toDOM: (node) => {
       const spec = base.toDOM!(node) as unknown as [string, Record<string, unknown>, 0]
       const a = node.attrs
-      return [spec[0], { ...spec[1], 'data-nv-p': a.nvP ?? undefined, 'data-nv-slide': a.nvSlide ?? undefined, 'data-nv-t': a.nvT ?? undefined, 'data-nv-o': a.nvO ?? undefined, 'data-nv-notes': a.nvNotes ?? undefined }, 0]
+      return [spec[0], { ...spec[1], 'data-nv-p': a.nvP ?? undefined, 'data-nv-slide': a.nvSlide ?? undefined, 'data-nv-slide-ref': a.nvSlideRef ?? undefined, 'data-nv-slide-title': a.nvSlideTitle ?? undefined, 'data-nv-t': a.nvT ?? undefined, 'data-nv-o': a.nvO ?? undefined, 'data-nv-notes': a.nvNotes ?? undefined }, 0]
     },
     parseMarkdown: {
       match: ({ type }) => type === 'listItem',
@@ -198,6 +201,8 @@ const listItemMarkers = extendListItemSchemaForTask.extendSchema((prev) => (ctx)
         state.openNode('listItem', undefined, a.checked == null ? { spread: a.spread } : { label: a.label, listType: a.listType, spread: a.spread, checked: a.checked })
         const markers = [
           a.nvSlide != null ? `<!-- slide:${a.nvSlide} -->` : a.nvP != null ? `<!-- p:${a.nvP} -->` : '',
+          a.nvSlideTitle != null ? `<!-- slide-title:${a.nvSlideTitle} -->` : '',
+          a.nvSlideRef != null ? `<!-- slide:${a.nvSlideRef} -->` : '',
           ...(a.nvNotes ? String(a.nvNotes).split(',').map((id: string) => `<!-- note:${id} -->`) : []),
         ].filter(Boolean)
         node.content.forEach((child, _o, i) => {
@@ -386,6 +391,14 @@ export async function createPartEditor(o: PartEditorOptions): Promise<PartEditor
     s.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); o.onNoteBadge(id) })
     return s
   }
+  const slideIcon = (n: number) => () => {
+    const s = document.createElement('span')
+    s.className = 'nv-si'
+    s.textContent = '🖼'
+    s.title = `From slide ${n}'s title`
+    s.setAttribute('contenteditable', 'false')
+    return s
+  }
   let badgeGen = 0
   const build = (doc: ProseNode, cur: number | null): DecorationSet => {
     const decos: Decoration[] = []
@@ -394,6 +407,7 @@ export async function createPartEditor(o: PartEditorOptions): Promise<PartEditor
       const a = node.attrs, first = node.firstChild
       if (first && first.isTextblock) {
         const end = pos + first.nodeSize   // the end of the first block's content
+        if (a.nvSlideTitle != null) decos.push(Decoration.widget(pos + 2, slideIcon(a.nvSlideTitle), { side: -1, key: `s${a.nvSlideTitle}`, ignoreSelection: true, stopEvent: () => true }))
         if (edited(node)) decos.push(Decoration.widget(end, pencil(a.nvO), { side: 1, key: `e${a.nvO ?? 'x'}`, ignoreSelection: true, stopEvent: () => true }))
         if (a.nvNotes) for (const id of String(a.nvNotes).split(',')) decos.push(Decoration.widget(end, badge(id), { side: 2, key: `n${id}:${badgeGen}`, ignoreSelection: true, stopEvent: () => true }))
         if ((a.nvP != null || a.nvSlide != null) && a.nvT != null) decos.push(Decoration.widget(end, chip(a.nvT), { side: 3, key: `t${a.nvT}`, ignoreSelection: true, stopEvent: () => true }))

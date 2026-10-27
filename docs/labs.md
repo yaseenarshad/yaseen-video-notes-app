@@ -516,6 +516,14 @@ dumped, answered by hand, run through the real validator: `tool.ts prompts | app
 (L1OBRtfPS34, 10 parts, 410 bullets) and the Flying Tesla episode (dthaDyttHns, 15 parts, 1,099 bullets), in the real
 Labs cache; both round-trip through the editors byte-identically.
 
+**Generation (v2):** the prompt also gets the concise-writing paragraphs of the Mochi skill's principles.md (read
+fresh), the part's slides (title = first OCR line, OCR text, t0–t1) or — with no slides — the chapter and the host's
+questions (Labs analysis), and the spelling sources (title, chapters, YouTube description from `info.json`, fetched
+once when missing). New markers: `<!-- slide-title:N -->` (a heading from a slide's title; the Notes view shows 🖼) and
+`… (slide) <!-- p:N --> <!-- slide:N -->` (slide-only text). Deterministic "nothing lost" checks (`checks.ts`: coverage,
+numbers and names, format, "cut, don't rewrite") show as a ⚠ line per part. Both pre-generated videos were remade (v2)
+and the first notes kept as `<slug>.notes.v1.md`; "🕘 Compare with previous notes" switches every part between them.
+
 Shared-file edits (each commented `// added by notes-view`):
 
 ```

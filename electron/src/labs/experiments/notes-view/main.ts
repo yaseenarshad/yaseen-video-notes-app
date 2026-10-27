@@ -7,9 +7,10 @@ import type { Words } from '../../analysis/words'
 import { defineMainHooks, type LabsVideoContext } from '../../hooks'
 import { cacheDir, writeCache } from '../../store'
 import { buildNotesPrompt, InvalidNotes, NOTES_SYSTEM, retryNotesPrompt, validateNotes, type NotesValidation } from './aiNotes'
-import { bulletsOf, editorPart, emptyDoc, emptyOriginals, ensureOriginals, ensureSections, findSection, markedOf, originalsFromSection, partSig, partTouched, setAiNotes, setPart, slideSignature, specsSignature, assignOriginals, type Bullet, type NotesDoc, type Originals } from './notesFile'
+import { checkPart } from './checks'
+import { bulletsOf, editorPart, partLines, emptyDoc, emptyOriginals, ensureOriginals, ensureSections, findSection, markedOf, originalsFromSection, partSig, partTouched, setAiNotes, setPart, slideSignature, specsSignature, assignOriginals, type Bullet, type NotesDoc, type Originals } from './notesFile'
 import { computeSections, timeBullets, type ViewSection } from './sections'
-import { changeNotes, IMAGES_DIR, insideNotesDir, notesPath, paraTimeOf, readFormat, readNotes, readOriginals, readSlides, sectionSpecs } from './store'
+import { changeNotes, ensureInfo, paraAtOf, IMAGES_DIR, insideNotesDir, notesPath, paraTimeOf, promptContext, readInfo, readNotes, readOriginals, readSlides, sectionSpecs, slideTextMap } from './store'
 import VIEW from './view/index.ts?iife'
 
 /**
@@ -60,16 +61,29 @@ function viewData(ctx: LabsVideoContext) {
     orig = readOriginals(file)
   }
   doc = doc ?? emptyDoc(`Notes — ${w.title}`)
-  ensureSections(doc, sectionSpecs(w, computeSections(w)))
+  const computed = computeSections(w)
+  ensureSections(doc, sectionSpecs(w, computed))
   const dur = Math.ceil(w.duration || 0)
+  // "nothing lost" checks: sources for spelling fixes, slide texts
+  const info = readInfo(ctx.userData, ctx.videoId)
+  const sources = [w.title, ...(w.chapters ?? []).map((c) => c.title), info?.description ?? '']
+  const slideText = slideTextMap(cacheDir(ctx.userData, ctx.videoId))
+  const paras = w.paras.map((words, i) => ({ words, times: w.times[i] ?? [] }))
+  // the previous notes (`<slug>.notes.v1.md`), for "Compare with previous notes"
+  const v1file = file.replace(/\.notes\.md$/, '.notes.v1.md')
+  const v1 = existsSync(v1file) ? readNotes(v1file) : null
   const sections = doc.sections.map((s, i) => {
     const po = orig?.parts[String(s.t)] ?? originalsFromSection(s)
     const times = bulletTimes(bulletsOf(s), assignOriginals(bulletsOf(s), po), w)
     const ed = editorPart(s, po, (b) => times.get(b) ?? null)
+    const sec = computed.find((c) => c.t === s.t)
+    const checks = sec && markedOf(s).length ? checkPart({ paras, startPara: sec.startPara, endPara: sec.endPara, bullets: bulletsOf(s), slideText, sources }) : null
+    const old = v1?.sections.find((x) => x.t === s.t)
     return {
       t: s.t, end: doc!.sections[i + 1]?.t ?? Math.max(dur, s.t + 1), title: s.title,
       md: ed.md, orig: ed.orig, sig: partSig(s), touched: partTouched(s, po),
       aiCount: markedOf(s).length, slideCount: s.items.filter((x) => x.kind === 'slide').length,
+      checks, v1: v1 ? (old ? partLines(old, 0).join('\n') : '') : null,
     }
   })
   return { file, exists: exists || existsSync(file), sections, claude: !!findClaude(), job: publicJob(jobs.get(ctx.videoId) ?? idle()), slides: slides.length }
@@ -80,7 +94,10 @@ function viewData(ctx: LabsVideoContext) {
 const isLogin = (m: string): boolean => /log ?in|logged out|auth|oauth|credential/i.test(m)
 
 async function notesFor(ctx: LabsVideoContext, w: Words, sec: ViewSection, log: (l: string) => void): Promise<NotesValidation> {
-  const prompt = buildNotesPrompt(readFormat(), w, sec)   // notes-format.md read fresh every run
+  await ensureInfo(ctx.userData, ctx.videoId, log)   // the YouTube description (spelling source), fetched once
+  const pc = promptContext(ctx.userData, ctx.videoId, w, sec)   // notes-format.md + principles.md read fresh every run
+  const prompt = buildNotesPrompt(pc, w, sec)
+  const vopts = { slides: pc.slides, paraAt: paraAtOf(w) }
   writeCache(ctx.userData, ctx.videoId, `notes-prompt-${sec.t}.txt`, prompt)
   const ask = async (p: string, tag: string) => {
     const r = await runClaude(p, { system: NOTES_SYSTEM, log })
@@ -89,10 +106,10 @@ async function notesFor(ctx: LabsVideoContext, w: Words, sec: ViewSection, log: 
   }
   let v: NotesValidation | null = null
   let problems: string[] = []
-  try { v = validateNotes(await ask(prompt, ''), sec); problems = v.violations } catch (e) { if (!(e instanceof InvalidNotes)) throw e; problems = [e.message] }
+  try { v = validateNotes(await ask(prompt, ''), sec, vopts); problems = v.violations } catch (e) { if (!(e instanceof InvalidNotes)) throw e; problems = [e.message] }
   if (problems.length) {
     log(`section ${sec.t}: asking again (${problems.slice(0, 3).join('; ')})`)
-    try { v = validateNotes(await ask(retryNotesPrompt(prompt, problems), '-retry'), sec) } catch (e) { if (!(e instanceof InvalidNotes) || !v) throw e }
+    try { v = validateNotes(await ask(retryNotesPrompt(prompt, problems), '-retry'), sec, vopts) } catch (e) { if (!(e instanceof InvalidNotes) || !v) throw e }
   }
   if (!v) throw new Error('no usable notes')
   log(`section ${sec.t}: ${v.count} bullets, ${v.violations.length} sanitized, ${v.repairs.length} repairs, uncovered ${v.uncovered.join(',') || 'none'}`)

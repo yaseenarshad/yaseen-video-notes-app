@@ -50,7 +50,14 @@ interface Labs {
 }
 
 // ---------- the data (main.ts `data` route) ----------
-interface DSection { t: number; end: number; title: string; md: string; orig: Original[]; sig: string; touched: boolean; aiCount: number; slideCount: number }
+interface DChecks { uncovered: { p: number; t: number }[]; missing: string[]; format: string[]; reworded: { text: string; share: number; p: number }[]; contentParas: number }
+interface DSection {
+  t: number; end: number; title: string; md: string; orig: Original[]; sig: string; touched: boolean; aiCount: number; slideCount: number
+  /** "Nothing lost" checks of the AI notes (null: no AI notes). */
+  checks: DChecks | null
+  /** The previous notes of this part (`<slug>.notes.v1.md`); null when there is no previous file. */
+  v1: string | null
+}
 interface Job { state: 'idle' | 'running' | 'done' | 'failed'; current: number | null; done: number; total: number; error: string | null; loginNeeded: boolean; lines: string[]; pending: number[] }
 interface Data { file: string; exists: boolean; sections: DSection[]; claude: boolean; job: Job; slides: number }
 
@@ -74,18 +81,20 @@ const FOLD_UP = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stro
 
 // ---------- the static copy of a part (before its editor exists) ----------
 
-const MARK_RE = /[ \t]*<!--\s*(p|slide|note):([\w.-]+)((?:\s+[a-z]+:[\w.]*)*)\s*-->/g
-interface SNode { text: string; p: number | null; slide: number | null; t: number | null; notes: string[]; children: SNode[] }
+const MARK_RE = /[ \t]*<!--\s*(p|slide-title|slide|note):([\w.-]+)((?:\s+[a-z]+:[\w.]*)*)\s*-->/g
+interface SNode { text: string; p: number | null; slide: number | null; slideTitle: number | null; t: number | null; notes: string[]; children: SNode[] }
 function staticNode(n: TreeNode): SNode {
-  const out: SNode = { text: '', p: null, slide: null, t: null, notes: [], children: n.children.map(staticNode) }
+  const out: SNode = { text: '', p: null, slide: null, slideTitle: null, t: null, notes: [], children: n.children.map(staticNode) }
   out.text = n.text.replace(MARK_RE, (_m, kind: string, v: string, fields: string) => {
     if (kind === 'p') out.p = Number(v)
     if (kind === 'slide') out.slide = Number(v)
+    if (kind === 'slide-title') out.slideTitle = Number(v)
     if (kind === 'note') out.notes.push(v)
     const t = /\bt:([\d.]+)/.exec(fields)
     if (t) out.t = Number(t[1])
     return ''
   }).trim()
+  if (out.p !== null) out.slide = null   // with a paragraph it is text from a slide, not the slide image
   return out
 }
 const imageSrc = (src: string) => (/^[a-z][a-z0-9+.-]*:/i.test(src) ? src : BASE + 'file/' + src.replace(/^\/+/, '').split('/').map(encodeURIComponent).join('/'))
@@ -165,6 +174,8 @@ interface SecView {
   root: HTMLElement
   head: HTMLElement
   noAi: HTMLElement
+  checksBox: HTMLElement
+  v1Box: HTMLElement
   edBox: HTMLElement
   mirrorBox: HTMLElement
   saveEl: HTMLElement
@@ -267,6 +278,12 @@ export function mount(L: Labs, host: HTMLElement) {
       bar.append(b)
     }
     if (job.state === 'failed' && job.error) bar.append(el('div', 'nv-err', job.loginNeeded ? 'AI notes need `claude` login — run `claude` in a terminal and /login, then try again.' : `AI notes failed: ${job.error}`))
+    if (data.sections.some((s) => s.v1 !== null)) {
+      const cmp = el('button', `nv-btn${comparing ? ' nv-on' : ''}`, comparing ? '🕘 Showing previous notes · back to new' : '🕘 Compare with previous notes')
+      cmp.title = 'Switch every part between the current notes and the previous version (<slug>.notes.v1.md)'
+      cmp.onclick = () => setCompare(!comparing)
+      bar.append(cmp)
+    }
     const right = el('span', 'nv-right')
     const fa = el('button', 'nv-btn nv-plain', 'Fold all'); fa.onclick = () => foldAll(true)
     const ua = el('button', 'nv-btn nv-plain', 'Unfold all'); ua.onclick = () => foldAll(false)
@@ -299,24 +316,32 @@ export function mount(L: Labs, host: HTMLElement) {
 
   /** The static copy of a part (same DOM as the editor's list); a click opens the editor there. */
   function renderStatic(sv: SecView): void {
-    sv.staticTimed = []
+    const { md, timed, empty } = buildStatic(sv.d.md, new Set(folds.e[String(sv.d.t)] ?? []))
+    sv.staticTimed = timed
+    if (empty) sv.edBox.replaceChildren(el('div', 'nv-ed-empty', 'Type your notes for this part…'))
+    else sv.edBox.replaceChildren(md)
+  }
+
+  /** A part's markdown → the Crepe list DOM (read-only), with its timed bullets. */
+  function buildStatic(source: string, keys: Set<string>): { md: HTMLElement; timed: TimedEl[]; empty: boolean } {
+    const timed: TimedEl[] = []
     const md = el('div', 'milkdown nv-static')
     const pm = el('div', 'ProseMirror')
     const ul = el('ul')
     pm.append(ul); md.append(pm)
     const occ = new Map<string, number>()
-    const keys = new Set(folds.e[String(sv.d.t)] ?? [])
     const walk = (n: SNode, into: HTMLElement) => {
       const isSlide = n.slide !== null
       let wrap: HTMLElement | null = null
       const b = bullet((p) => {
+        if (n.slideTitle !== null) { const ic = el('span', 'nv-si', '🖼'); ic.title = `From slide ${n.slideTitle}'s title`; p.append(ic) }
         inline(n.text, p)
         wrap = p.querySelector('.image-view')
         if (isSlide && wrap) wrap.dataset.caption = (wrap.querySelector('img')?.alt ?? '')
         if (n.notes.length) for (const id of n.notes) { const s = el('span', 'nv-nb', '💬'); s.dataset.id = id; p.append(s) }
         if (n.t !== null) { const c = el('span', 'nv-pm', L.ui.fmt(n.t)); c.dataset.t = String(n.t); p.append(c) }
       }, isSlide ? 'nv-slide' : n.p !== null ? 'nv-b' : 'nv-own')
-      if (n.t !== null) { b.block.dataset.t = String(n.t); sv.staticTimed.push({ t: n.t, el: b.block }) }
+      if (n.t !== null) { b.block.dataset.t = String(n.t); timed.push({ t: n.t, el: b.block }) }
       const foldable = n.children.length > 0 || !!wrap
       if (foldable) {
         const label = labelOf(n.text)
@@ -335,12 +360,45 @@ export function mount(L: Labs, host: HTMLElement) {
       }
       into.append(b.block)
     }
-    for (const n of parseTree(sv.d.md.split('\n'))) walk(staticNode(n), ul)
-    if (!ul.children.length) {
-      const add = el('div', 'nv-ed-empty', 'Type your notes for this part…')
-      sv.edBox.replaceChildren(add)
-    } else sv.edBox.replaceChildren(md)
-    sv.staticTimed.sort((a, b) => a.t - b.t)
+    for (const n of parseTree(source.split('\n'))) walk(staticNode(n), ul)
+    timed.sort((a, b) => a.t - b.t)
+    return { md, timed, empty: !ul.children.length }
+  }
+
+  /** The ⚠ list of a part: "nothing lost" checks of its AI notes (never blocks anything). */
+  function renderChecks(sv: SecView): void {
+    sv.checksBox.replaceChildren()
+    const c = sv.d.checks
+    if (!c) return
+    const n = c.uncovered.length + c.missing.length + c.format.length + c.reworded.length
+    if (!n) return
+    const det = el('details', 'nv-checks')
+    const cov = c.contentParas ? Math.round(((c.contentParas - c.uncovered.length) / c.contentParas) * 100) : 100
+    det.append(el('summary', '', `⚠ ${[c.uncovered.length ? `${c.uncovered.length} paragraph${c.uncovered.length > 1 ? 's' : ''} not in the notes (${cov}% covered)` : '', c.missing.length ? `${c.missing.length} number${c.missing.length > 1 ? 's' : ''} / name${c.missing.length > 1 ? 's' : ''} missing` : '', c.format.length ? `${c.format.length} format` : '', c.reworded.length ? `${c.reworded.length} may be reworded` : ''].filter(Boolean).join(' · ')}`))
+    if (c.uncovered.length) {
+      const row = el('div', 'nv-ck-row', 'Not covered: ')
+      for (const u of c.uncovered) { const b = el('button', 'nv-tchip', L.ui.fmt(u.t)); b.title = `Paragraph ${u.p} — play it`; b.onclick = () => L.video.seek(u.t); row.append(b, ' ') }
+      det.append(row)
+    }
+    if (c.missing.length) det.append(el('div', 'nv-ck-row', `Missing: ${c.missing.join(' · ')}`))
+    for (const f of c.format) det.append(el('div', 'nv-ck-row', `Format: ${f}`))
+    for (const r of c.reworded) det.append(el('div', 'nv-ck-row nv-ck-rw', `May be reworded (${Math.round(r.share * 100)}% of its words in P${r.p}): ${r.text.slice(0, 120)}`))
+    sv.checksBox.append(det)
+  }
+
+  // ---------- "Compare with previous notes" (`<slug>.notes.v1.md`) ----------
+  let comparing = false
+  function setCompare(on: boolean): void {
+    comparing = on
+    pane.classList.toggle('nv-comparing', on)
+    for (const s of secs) {
+      if (on && !s.v1Box.childElementCount) {
+        const label = el('div', 'nv-tag nv-tag-v1', '🕘 Previous notes (v1) — read-only')
+        if (s.d.v1) s.v1Box.append(label, buildStatic(s.d.v1, new Set()).md)
+        else s.v1Box.append(label, el('div', 'nv-muted', 'No notes for this part in the previous version.'))
+      }
+    }
+    renderBar()
   }
 
   function setSave(sv: SecView, state: 'edited' | 'saving' | 'saved' | 'error', msg = ''): void {
@@ -437,8 +495,11 @@ export function mount(L: Labs, host: HTMLElement) {
     if (ed) await ed.destroy()
     sv.d = next
     sv.pending = null
+    sv.v1Box.replaceChildren()
     renderStatic(sv)
     renderNoAi(sv)
+    renderChecks(sv)
+    if (comparing) setCompare(true)
     renderCounts(sv)
     curEl = null
     if (had) void mountEditor(sv, false)
@@ -469,11 +530,13 @@ export function mount(L: Labs, host: HTMLElement) {
     head.append(fold, time, title, counts, saveEl, regen)
     const body = el('div', 'nv-body')
     const noAi = el('div', 'nv-noai')
+    const checksBox = el('div', 'nv-checks-box')
+    const v1Box = el('div', 'nv-v1')
     const edBox = el('div', 'nv-ed milkdown-host')
     const mirrorBox = el('div', 'nv-mirror')
-    body.append(noAi, edBox, mirrorBox)
+    body.append(noAi, checksBox, v1Box, edBox, mirrorBox)
     root.append(head, body)
-    const sv: SecView = { d, root, head, noAi, edBox, mirrorBox, saveEl, staticTimed: [], editor: null, mounting: null, pending: null, timer: undefined, saving: null }
+    const sv: SecView = { d, root, head, noAi, checksBox, v1Box, edBox, mirrorBox, saveEl, staticTimed: [], editor: null, mounting: null, pending: null, timer: undefined, saving: null }
     const setFold = (c: boolean) => {
       root.classList.toggle('nv-folded', c)
       fold.setAttribute('aria-expanded', String(!c))
@@ -496,6 +559,7 @@ export function mount(L: Labs, host: HTMLElement) {
     })
     renderStatic(sv)
     renderNoAi(sv)
+    renderChecks(sv)
     renderCounts(sv)
     renderMirror(sv)
     return sv

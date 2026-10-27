@@ -78,7 +78,8 @@ writes to the vault); the code can also put it beside the transcript (`notesPath
 - 3 spaces per level. `<!-- p:N -->` = the transcript paragraph the bullet follows (sync). A bullet without one is
   yours (or a hand edit). `==…==` = your words (the docs app's highlight syntax: exactly two `=`, no space just inside).
   An AI bullet whose text differs from its original in the sidecar was edited by you. `<!-- note:<id> -->` = sent as a
-  💬 transcript note. Slides end with `<!-- slide:N -->`. Pasted images are in `notes-images/` next to the file
+  💬 transcript note. Slides end with `<!-- slide:N -->`; a heading made from a slide's title adds
+  `<!-- slide-title:N -->` after its `p:N`, slide-only text `… (slide) <!-- p:N --> <!-- slide:N -->`. Pasted images are in `notes-images/` next to the file
   (relative links; `|400` = the display width, Obsidian's syntax, as in the docs app).
 - **Legacy:** the first version kept your notes under a `* Yasin:` bullet at the end of the part. Such files still
   load: those bullets show inline at the end of the part, highlighted, and are written as `==…==` bullets on the next
@@ -99,25 +100,61 @@ writes to the vault); the code can also put it beside the transcript (`notesPath
   original's index); `setPart` drops them, takes out the escapes the editor adds that the text never needed (`1\)` at
   the start, `Q\&A`, a leading `\=`) — measured: both pre-generated files (410 / 1,099 bullets) round-trip through the
   editors byte-identically.
-- Code: `notesFile.ts` (parse / serialize / merge / originals, unit-tested), `noteTarget.ts` (bullet → 💬 note:
+- Code: `notesFile.ts` (parse / serialize / merge / originals, unit-tested), `checks.ts` ("nothing lost" checks,
+  unit-tested), `noteTarget.ts` (bullet → 💬 note:
   paragraph, time, quote, text; unit-tested), `sections.ts` (parts, bullet times), `aiNotes.ts` (prompt, validator;
   an AI text never contains `==`), `store.ts` (paths, locked writes, sidecar, slides.json), `main.ts` (routes, the AI
   job).
 
 ## AI notes
 
-- Prompt = notes-format.md + the answer rules + the part's paragraphs as `P41 [12:14] …words…`
-  (`labs-cache/<id>/notes-prompt-<t>.txt`; answers `notes-response-<t>.txt`).
-- Validator: bullets only, any indentation; ids in the part (out of range → clamped, missing → inherited, `(P12)`
-  forms accepted); bold / headers / mochi tags / non-bullet lines are **violations** → asked once more, then stripped.
-  Reports paragraphs no bullet cites (mostly "Yeah." / "Okay." turns).
-- Pre-generating without `claude` (what was done for the two videos):
+- **Prompt** (`aiNotes.ts buildNotesPrompt`, inputs gathered by `store.ts promptContext`):
+  - notes-format.md (with its "Video notes: outline, cleanup, punch" section) and the "Aim for card prose…" + "Use
+    direct verbs and short sentences…" paragraphs of `skills-global-yaseen/mochi/card-making/principles.md` — both
+    read fresh on every run (`VIDEO_NOTES_NOTES_FORMAT` / `VIDEO_NOTES_PRINCIPLES` override the paths).
+  - **Slides** (`labs-cache/<id>/slides.json`, real slides only): number, t0–t1, title (first OCR line) and the full OCR
+    text of each slide shown during the part → slide-title headings at the slide's time, the speaker's points nested.
+  - **No slides** (most podcasts): the YouTube chapter of the part, the host's questions in it from the Labs analysis
+    (`labs-analysis.json` questions; no analysis → the model finds them), topic-shift headings named with the
+    speaker's own key phrase.
+  - **Spelling sources**: video title, chapter titles, YouTube description (`labs-cache/<id>/info.json`; fetched once
+    with yt-dlp and cached when missing).
+  - The part's paragraphs as `P41 [12:14] …words…` (`labs-cache/<id>/notes-prompt-<t>.txt`; answers `notes-response-<t>.txt`).
+- **Answer / file markers**: every bullet `<!-- p:N -->`; a heading from a slide's title adds `<!-- slide-title:N -->`
+  (the Notes view shows 🖼 before it, and the slide picture sits right before that heading); slide text the speaker never
+  said ends ` (slide)` and adds `<!-- slide:N -->` after its paragraph marker.
+- **Validator**: bullets only, any indentation; ids in the part (out of range → clamped, missing → inherited, a slide
+  bullet without one → the paragraph at its slide's start, `(P12)` forms accepted); slide markers must name a slide of
+  the part; `(slide)` added when missing; `==` escaped (never Yasin's words); bold / headers / mochi tags /
+  non-bullet lines are **violations** → asked once more, then stripped.
+- **"Nothing lost" checks** (`checks.ts`, code, unit-tested; a ⚠ line under the part's header, click to open; never
+  blocks saving): coverage (every paragraph with real content — not filler-only like "Yeah." / "[applause]" — cited
+  by a `p:N`; uncovered ones as clickable times), numbers and names (every number and capitalised name / proper noun
+  of the part's paragraphs appears in its notes; a spelling taken from the sources is fine, letters only, ~40 % edits),
+  format, and "cut, don't rewrite" (a bullet with under 70 % of its content words in its source paragraph ± 1 or its
+  slide → "may be reworded").
+- **Compare with previous notes**: when `<slug>.notes.v1.md` exists beside the notes file, the bar has "🕘 Compare
+  with previous notes": every part switches to the previous version (read-only) and back.
+- Pre-generating without `claude` (what was done for the two videos, twice):
   ```bash
-  npx vite-node src/labs/experiments/notes-view/tool.ts -- prompts <video folder> <out dir>      # the exact prompts
-  # answer each section-<t>.txt as section-<t>.answer.md
-  npx vite-node src/labs/experiments/notes-view/tool.ts -- apply <video folder> <out dir> <userData dir>
-  npx vite-node src/labs/experiments/notes-view/tool.ts -- check <notes.md>
+  npx vite-node src/labs/experiments/notes-view/tool.ts -- prompts <video folder> <out dir> <userData dir>   # the exact prompts
+  # answer each section-<t>.txt as section-<t>.answer.md; check one without writing anything:
+  npx vite-node src/labs/experiments/notes-view/tool.ts -- try <video folder> <out dir> <userData dir> <t>
+  npx vite-node src/labs/experiments/notes-view/tool.ts -- apply <video folder> <out dir> <userData dir> --keep-v1
+  npx vite-node src/labs/experiments/notes-view/tool.ts -- check <notes.md> [<video folder> <userData dir>]
+  npx vite-node src/labs/experiments/notes-view/tool.ts -- compare <old.md> <new.md> <video folder> <userData dir>
   ```
+- **The remake (v2, 2026-10-27)**, answered by Claude subagents following the prompts, run through the validator and
+  checks; the first notes are `<slug>.notes.v1.md`:
+
+  | | Stanford (slides) v1 → v2 | Flying Tesla (podcast) v1 → v2 |
+  |---|---|---|
+  | AI bullets | 410 → 405 | 1,099 → 946 |
+  | words per bullet | 16.2 → 15.7 | 12.9 → 14.2 |
+  | coverage (real paragraphs) | 100 % → 100 % | 90.2 % → 98.2 % |
+  | numbers / names missing | 0 → 0 | 45 → 28 (all spelling fixes the sources do not confirm, e.g. Palmer Lucky → Luckey) |
+  | "may be reworded" | 0 → 0 | 49 → 12 (all from name fixes) |
+  | slide-title headings / (slide) bullets | 0 / 0 → 43 / 42 | — |
 
 ## The editor (one Crepe per part)
 

@@ -133,3 +133,18 @@
 
 /* Labs rails (signal-strip, coverage-map …) stand along the column's right edge: keep the notes clear of them */
 .rwrap.labs-railed .nv-inner { padding-right: calc(40px + var(--labs-rails-w, 0px)); }
+
+/* "nothing lost" checks of a part's AI notes */
+.nv-checks { font: 12.5px/1.5 system-ui, sans-serif; color: var(--muted); margin: 2px 0 6px; }
+.nv-checks summary { cursor: pointer; color: #b54708; }
+.nv-dark .nv-checks summary { color: #fdb022; }
+.nv-ck-row { padding: 2px 0 2px 14px; }
+.nv-ck-rw { font-style: italic; }
+.nv-pane .nv-si { margin-right: 6px; font-size: .9em; user-select: none; }
+
+/* compare with the previous notes (v1) */
+.nv-v1 { display: none; }
+.nv-comparing .nv-v1 { display: block; opacity: .92; }
+.nv-comparing .nv-ed, .nv-comparing .nv-checks-box, .nv-comparing .nv-noai { display: none; }
+.nv-tag-v1 { color: var(--muted); border: 1px dashed var(--faint); }
+.nv-btn.nv-on { background: var(--hl); border-color: var(--muted); }

@@ -8,6 +8,7 @@ import {
 } from './notesFile'
 import { anchorWord, computeSections, timeBullets, type ViewSection } from './sections'
 import { noteTarget, noteText } from './noteTarget'
+import { checkPart, isFillerOnly, namesIn, numbersIn, sourceShare } from './checks'
 
 /** The first version's file: AI bullets, a slide, and a separate `Yasin:` subtree. */
 const LEGACY = `# Notes — How always-on agents work
@@ -374,5 +375,114 @@ describe('AI answer validation', () => {
 
   it('rejects an answer with no bullets', () => {
     expect(() => validateNotes('   \n', sec)).toThrow(InvalidNotes)
+  })
+})
+
+// ---------- generation: outline markers, prompt inputs, "nothing lost" checks ----------
+
+describe('outline markers', () => {
+  it('a heading from a slide title and slide-only text round-trip (and survive the editor transport)', () => {
+    const f = '* [0:00](u&t=0s) A\n   * Durable workflows vs. job queues <!-- p:3 --> <!-- slide-title:12 -->\n      * Keep each tool\'s description under 4,000 characters (slide) <!-- p:3 --> <!-- slide:12 -->\n   * ![Slide 12 · 0:40](slides/slide-012.jpg) <!-- slide:12 -->\n'
+    const d = parseNotes(f)
+    const [h] = bulletsOf(d.sections[0])
+    expect(h).toMatchObject({ text: 'Durable workflows vs. job queues', p: 3, slideTitle: 12 })
+    expect(h.children[0]).toMatchObject({ text: 'Keep each tool\'s description under 4,000 characters (slide)', p: 3, slide: 12 })
+    expect(d.sections[0].items[1]).toMatchObject({ kind: 'slide', n: 12 })
+    expect(serializeNotes(d)).toBe(f)
+    const ed = editorPart(d.sections[0], originalsFromSection(d.sections[0]), () => 40)
+    expect(ed.md.split('\n')[0]).toBe('* Durable workflows vs. job queues <!-- p:3 t:40 o:0 --> <!-- slide-title:12 -->')
+    setPart(d, 0, ed.md)
+    expect(serializeNotes(d)).toBe(f)
+  })
+})
+
+describe('slides next to their title heading', () => {
+  it('a slide goes right before the bullet made from its title', () => {
+    const d = parseNotes('* [0:00](u&t=0s) A\n   * Intro <!-- p:0 -->\n   * ![Slide 7 · 0:05](slides/s7.jpg) <!-- slide:7 -->\n')
+    setAiNotes(d, 0, [{ text: 'Intro', p: 0, children: [] }, { text: 'How developers work with AI', p: 0, slideTitle: 7, children: [{ text: 'Four eras', p: 0, children: [] }] }], () => 0)
+    expect(serializeNotes(d)).toBe('* [0:00](u&t=0s) A\n   * Intro <!-- p:0 -->\n   * ![Slide 7 · 0:05](slides/s7.jpg) <!-- slide:7 -->\n   * How developers work with AI <!-- p:0 --> <!-- slide-title:7 -->\n      * Four eras <!-- p:0 -->\n')
+  })
+})
+
+describe('the prompt', () => {
+  const sec: ViewSection = { t: 0, end: 320, title: 'Agents', kind: 'chapter', startPara: 0, endPara: 1 }
+  it('with slides: titles, OCR text, times, the slide markers', () => {
+    const p = buildNotesPrompt({ format: 'FORMAT', principles: 'Use direct verbs.', slides: [{ n: 4, t0: 49, t1: 126, title: 'Your agent vs. an always-on agent', text: 'Your agent vs. an always-on agent\nRuns on a server' }], description: 'About Grok Bot' }, W, sec)
+    expect(p).toContain('Use direct verbs.')
+    expect(p).toContain('S4 [0:49–2:06] title: Your agent vs. an always-on agent')
+    expect(p).toContain('   | Runs on a server')
+    expect(p).toContain('<!-- slide-title:S -->')
+    expect(p).toContain('- YouTube description:\n  About Grok Bot')
+    expect(p).not.toContain('host\'s questions')
+  })
+  it('no slides: the chapter, the host\'s questions (or: find them), topic shifts', () => {
+    const withQ = buildNotesPrompt({ format: 'F', slides: [], questions: [{ p: 1, t: 100, text: 'where does the agent run?' }] }, W, sec)
+    expect(withQ).toContain('the YouTube chapter "Agents"')
+    expect(withQ).toContain('- P1 [1:40] where does the agent run?')
+    expect(withQ).toContain('topic clearly shifts')
+    expect(buildNotesPrompt({ format: 'F', slides: [], questions: null }, W, sec)).toContain('find them in the transcript')
+  })
+  it('the validator keeps slide markers of this part, adds "(slide)", gives a slide bullet its slide\'s paragraph', () => {
+    const v = validateNotes('* Durable workflows <!-- p:1 --> <!-- slide-title:4 -->\n   * Under 4,000 characters <!-- slide:4 -->\n* Other <!-- p:1 --> <!-- slide:99 -->', sec,
+      { slides: [{ n: 4, t0: 100, t1: 120, title: 'Durable workflows', text: '' }], paraAt: (t) => (t >= 100 ? 1 : 0) })
+    expect(v.bullets[0]).toMatchObject({ text: 'Durable workflows', p: 1, slideTitle: 4 })
+    expect(v.bullets[0].children[0]).toMatchObject({ text: 'Under 4,000 characters (slide)', p: 1, slide: 4 })
+    expect(v.bullets[1].slide).toBeUndefined()
+    expect(v.repairs.some((r) => r.includes('slide:99'))).toBe(true)
+  })
+})
+
+describe('"nothing lost" checks', () => {
+  const paras = [
+    { words: ['Yeah.'], times: [0] },
+    { words: ['Robotics', 'costs', 'dropped', '84%', 'in', 'two', 'months,', 'Jeff', 'Holden', 'said', 'at', 'Atomic', 'Machines.'], times: [10] },
+    { words: ['[applause]'], times: [20] },
+    { words: ['The', 'price', 'is', '$2.36', 'per', 'hour', 'with', 'Firecracker', 'snapshots.'], times: [30] },
+    { words: ['We', 'think', 'Optimus', 'will', 'ship', 'in', '2027', 'for', 'sure.'], times: [40] },
+  ]
+  const B2 = (text: string, p: number | null, children: Bullet[] = []): Bullet => ({ text, p, children })
+
+  it('coverage: real paragraphs only (filler-only ones skipped)', () => {
+    const r = checkPart({ paras, startPara: 0, endPara: 4, bullets: [B2('Robotics costs dropped 84% in two months = Jeff Holden, Atomic Machines', 1)] })
+    expect(r.contentParas).toBe(3)
+    expect(r.uncovered).toEqual([{ p: 3, t: 30 }, { p: 4, t: 40 }])
+    expect(isFillerOnly(['Okay,', 'so.'])).toBe(true)
+    expect(isFillerOnly(['That', 'is', 'the', 'point.'])).toBe(false)
+  })
+
+  it('numbers and names: missing ones listed; a spelling fixed from the sources is fine', () => {
+    expect(numbersIn(paras[3].words)).toEqual(['$2.36'])
+    expect(namesIn(paras[1].words)).toEqual(['Jeff Holden', 'Atomic Machines'])
+    expect(namesIn(['We', 'think', 'Optimus', 'will', 'ship.', 'Then', 'Tesla', 'wins.'])).toEqual(['Optimus'])
+    const r = checkPart({
+      paras, startPara: 0, endPara: 4,
+      bullets: [B2('Costs dropped 84% in 2 months — Jeff Holden of Atomic Machines', 1), B2('Price = 2.36 per hour with FireCracker snapshots', 3), B2('Optimous ships in 2027', 4)],
+      sources: ['Optimous: the robot (description)'],
+    })
+    expect(r.missing).toEqual([])
+    // spaces / hyphens and a garbled caption spelling, fixed to the description's
+    const garbled = [{ words: ['We', 'built', 'Grokbot', 'with', 'Anushia', 'for', 'the', 'X-P', 'Prize.'], times: [0] }]
+    expect(checkPart({ paras: garbled, startPara: 0, endPara: 0, bullets: [B2('Built Grok Bot with Anousheh for the XPRIZE', 0)], sources: ['Grok Bot', 'Anousheh Ansari XPRIZE'] }).missing).toEqual([])
+    expect(checkPart({ paras: garbled, startPara: 0, endPara: 0, bullets: [B2('Built a bot', 0)], sources: ['Grok Bot', 'Anousheh Ansari XPRIZE'] }).missing).toEqual(['Grokbot', 'Anushia', 'X-P Prize'])
+    const r2 = checkPart({ paras, startPara: 0, endPara: 4, bullets: [B2('Costs dropped in two months', 1), B2('Price per hour', 3)] })
+    expect(r2.missing).toEqual(['84%', 'Jeff Holden', 'Atomic Machines', '$2.36', 'Firecracker', '2027', 'Optimus'])
+  })
+
+  it('format: bold, headers, mochi tags in AI text', () => {
+    const r = checkPart({ paras, startPara: 1, endPara: 1, bullets: [B2('**Costs** dropped 84% — Jeff Holden, Atomic Machines', 1), B2('#mochi card', 1)] })
+    expect(r.format).toEqual(['bold: "**Costs** dropped 84% — Jeff Holden, Atomic Machines"', 'mochi tag: "#mochi card"'])
+  })
+
+  it('"cut, don\'t rewrite": bullets whose words are mostly not the speaker\'s are flagged', () => {
+    const r = checkPart({
+      paras, startPara: 1, endPara: 3, slideText: { 7: 'Firecracker snapshot pricing table hourly' },
+      bullets: [
+        B2('Robotics costs dropped 84% in two months', 1),
+        B2('Automation expenditure plummeted dramatically recently', 1),
+        { text: 'Firecracker snapshot pricing table (slide)', p: 3, children: [], slide: 7 },
+      ],
+    })
+    expect(r.reworded.map((x) => x.text)).toEqual(['Automation expenditure plummeted dramatically recently'])
+    expect(sourceShare('Robotics costs dropped', paras[1].words)).toBe(1)
   })
 })

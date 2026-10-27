@@ -35,6 +35,8 @@ const BULLET_RE = /^([*+-]|\d{1,3}[.)])[ \t]+(.*)$|^([*+-])$/
  */
 const P_MARK_RE = /[ \t]*<!--\s*p:\s*(\d+)((?:\s+[a-z]+:[\w.]*)*)\s*-->[ \t]*/
 const NOTE_MARK_RE = /[ \t]*<!--\s*note:\s*([A-Za-z0-9_-]{1,40})\s*-->[ \t]*/g
+const SLIDE_TITLE_RE = /[ \t]*<!--\s*slide-title:\s*(\d+)(?:\s+[a-z]+:[\w.]*)*\s*-->[ \t]*/
+const SLIDE_REF_RE = /[ \t]*<!--\s*slide:\s*(\d+)(?:\s+[a-z]+:[\w.]*)*\s*-->[ \t]*/
 const SLIDE_MARK_RE = /\s*<!--\s*slide:\s*(\d+)(?:\s+[a-z]+:[\w.]*)*\s*-->\s*$/
 const YASIN_RE = /^(?:🧑\s*)?Yasin:\s*$/i
 const IMG_RE = /^!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)\s*$/
@@ -44,7 +46,18 @@ const IMG_ANY_RE = /!\[[^\]]*\]\([^)\s]*(?:\s+"[^"]*")?\)/g
  * One bullet. `p` = the source paragraph (null: Yasin's own bullet, or a hand edit). `text` is markdown and may hold
  * `==…==` (Yasin's words) and several lines (a hard break). `notes` = ids of 💬 transcript notes made from it.
  */
-export interface Bullet { text: string; p: number | null; children: Bullet[]; marker?: string; notes?: string[] }
+export interface Bullet {
+  text: string
+  p: number | null
+  children: Bullet[]
+  marker?: string
+  /** 💬 notes made from it (`<!-- note:<id> -->`). */
+  notes?: string[]
+  /** A heading bullet made from slide N's title (`<!-- slide-title:N -->`: the UI shows a slide icon). */
+  slideTitle?: number
+  /** Text from slide N the speaker never said, marked `(slide)` (`<!-- slide:N -->` after its `<!-- p:N -->`). */
+  slide?: number
+}
 /** @deprecated the old name; every bullet is a `Bullet` now. */
 export type AiBullet = Bullet
 export interface BulletItem { kind: 'bullet'; bullet: Bullet }
@@ -216,7 +229,14 @@ function bulletOf(n: TreeNode): Bullet {
   if (m) { p = Number(m[1]); text = cut(text, m.index, m[0].length) }
   const notes: string[] = []
   for (let k = NOTE_MARK_RE.exec(text); k; k = NOTE_MARK_RE.exec(text)) { notes.push(k[1]); text = cut(text, k.index, k[0].length); NOTE_MARK_RE.lastIndex = 0 }
+  let slideTitle: number | undefined, slide: number | undefined
+  const st = SLIDE_TITLE_RE.exec(text)
+  if (st) { slideTitle = Number(st[1]); text = cut(text, st.index, st[0].length) }
+  const sr = p !== null ? SLIDE_REF_RE.exec(text) : null   // a slide marker with no paragraph is the slide image itself
+  if (sr) { slide = Number(sr[1]); text = cut(text, sr.index, sr[0].length) }
   const b: Bullet = { text: text.trim(), p, children: n.children.map(bulletOf) }
+  if (slideTitle !== undefined) b.slideTitle = slideTitle
+  if (slide !== undefined) b.slide = slide
   if (n.marker !== '*') b.marker = n.marker
   if (notes.length) b.notes = notes
   return b
@@ -224,7 +244,13 @@ function bulletOf(n: TreeNode): Bullet {
 
 /** Markers written after a bullet's text: file form (`<!-- p:N -->`) or the editor's transport (+ t:, o:). */
 export type MarkOf = (b: Bullet) => string
-export const fileMark: MarkOf = (b) => [b.p !== null ? `<!-- p:${b.p} -->` : '', ...(b.notes ?? []).map((id) => `<!-- note:${id} -->`)].filter(Boolean).join(' ')
+/** Extra markers after the paragraph marker, in the file's order: slide-title, slide, notes. */
+export const refMarks = (b: Bullet): string[] => [
+  b.slideTitle !== undefined ? `<!-- slide-title:${b.slideTitle} -->` : '',
+  b.slide !== undefined ? `<!-- slide:${b.slide} -->` : '',
+  ...(b.notes ?? []).map((id) => `<!-- note:${id} -->`),
+].filter(Boolean)
+export const fileMark: MarkOf = (b) => [b.p !== null ? `<!-- p:${b.p} -->` : '', ...refMarks(b)].filter(Boolean).join(' ')
 
 export function bulletLines(b: Bullet, depth: number, mark: MarkOf = fileMark, textOf: (text: string) => string = (t) => t): string[] {
   const pad = INDENT.repeat(depth), m = b.marker ?? '*'
@@ -508,7 +534,8 @@ export function migrateYasin(s: NotesSection): Bullet[] {
 
 /**
  * Item order inside a part: bullets keep their order; a top-level bullet without a marker stays glued to the one
- * before it; slides go between the top-level bullets by time (before the first that starts after the slide);
+ * before it; a slide goes right before the top-level bullet made from its title, other slides between the top-level
+ * bullets by time (before the first that starts after the slide);
  * a legacy `Yasin:` subtree stays last.
  */
 export function arrange(s: NotesSection, paraTime: (p: number) => number): void {
@@ -521,13 +548,23 @@ export function arrange(s: NotesSection, paraTime: (p: number) => number): void 
     if (p === null && units.length) units[units.length - 1].items.push(it)
     else units.push({ t: p === null ? -Infinity : paraTime(p), items: [it] })
   }
+  // a slide whose title heads a top-level bullet goes right before that bullet (picture, then its title + notes)
+  const titled = new Map<number, SlideItem>()
+  for (const u of units) {
+    const st = (u.items[0] as BulletItem).bullet.slideTitle
+    const sl = st !== undefined ? slides.find((x) => x.n === st) : undefined
+    if (sl && !titled.has(sl.n)) titled.set(sl.n, sl)
+  }
+  const free = slides.filter((x) => !titled.has(x.n))
   const merged: SectionItem[] = []
   let k = 0
   for (const u of units) {
-    while (k < slides.length && (slides[k].t ?? 0) < u.t) merged.push(slides[k++])
+    while (k < free.length && (free[k].t ?? 0) < u.t) merged.push(free[k++])
+    const st = (u.items[0] as BulletItem).bullet.slideTitle
+    if (st !== undefined && titled.has(st)) { merged.push(titled.get(st)!); titled.delete(st) }
     merged.push(...u.items)
   }
-  while (k < slides.length) merged.push(slides[k++])
+  while (k < free.length) merged.push(free[k++])
   s.items = [...merged, ...yasin]
 }
 
@@ -596,7 +633,7 @@ export function setAiNotes(doc: NotesDoc, t: number, fresh: Bullet[], paraTime: 
   const freshSet = new Set<Bullet>()
   const prune = (list: Bullet[]): Bullet[] => list.flatMap((b) => {
     if (b.p !== null && pinned.has(b.p)) return prune(b.children)
-    const c: Bullet = { text: b.text, p: b.p, children: prune(b.children) }
+    const c: Bullet = { ...b, children: prune(b.children) }
     freshSet.add(c)
     return [c]
   })
@@ -722,7 +759,7 @@ export function editorPart(s0: NotesSection, orig: PartOriginals, timeOf: (b: Bu
       if (b.p === null) return fileMark(b)
       const t = timeOf(b), a = assigned.get(b)
       const fields = [`p:${b.p}`, t !== null ? `t:${fmtT(t)}` : '', a ? `o:${oOf(a)}` : ''].filter(Boolean).join(' ')
-      return [`<!-- ${fields} -->`, ...(b.notes ?? []).map((id) => `<!-- note:${id} -->`)].join(' ')
+      return [`<!-- ${fields} -->`, ...refMarks(b)].join(' ')
     },
     slide: (it) => `<!-- slide:${it.n}${it.t !== null ? ` t:${it.t}` : ''} -->`,
   }).join('\n')
