@@ -57,6 +57,8 @@ export interface Bullet {
   slideTitle?: number
   /** Text from slide N the speaker never said, marked `(slide)` (`<!-- slide:N -->` after its `<!-- p:N -->`). */
   slide?: number
+  /** Yaseen wrote or changed this bullet: `#yaseen` is the first token of its text. */
+  yaseen?: boolean
 }
 /** @deprecated the old name; every bullet is a `Bullet` now. */
 export type AiBullet = Bullet
@@ -206,29 +208,6 @@ export function captionsText(text: string): string {
 /** Comparable form of a bullet text: markdown escapes undone, whitespace collapsed (the editor may re-escape). */
 export const canon = (text: string): string => text.replace(/\\([!-/:-@[-`{-~])/g, '$1').replace(/\s+/g, ' ').trim()
 
-/** `a = b` stays; any `=` touching another `=` is escaped, so it can never open or close a span. */
-const escapeEquals = (s: string): string => s.replace(/=(?==)|(?<==)=/g, '\\=')
-
-/**
- * Plain text → Yasin's words: every run of text between images becomes `==…==` (spaces just inside moved out, images
- * left alone — they are not words). Used for the legacy `Yasin:` notes.
- */
-export function wrapUser(text: string): string {
-  if (hasUserWords(text) && !stripUser(text.replace(IMG_ANY_RE, ' ')).trim()) return text   // already all Yasin's
-  const parts: string[] = []
-  let last = 0
-  const wrap = (seg: string) => {
-    const m = /^(\s*)([\s\S]*?)(\s*)$/.exec(seg)!
-    parts.push(m[2] ? `${m[1]}==${escapeEquals(m[2])}==${m[3]}` : seg)
-  }
-  for (const m of text.matchAll(IMG_ANY_RE)) {
-    if (m.index! > last) wrap(text.slice(last, m.index))
-    parts.push(m[0])
-    last = m.index! + m[0].length
-  }
-  if (last < text.length) wrap(text.slice(last))
-  return parts.join('')
-}
 
 // ---------- a generic bullet tree (indentation-based) ----------
 
@@ -285,6 +264,10 @@ function cut(text: string, start: number, len: number): string {
   return a && b && !a.endsWith('\n') && !b.startsWith('\n') ? `${a} ${b}` : a + b
 }
 
+/** `#yaseen` as the first token of a bullet's text (read in any case, written lowercase). */
+const YASEEN_RE = /^#yaseen(?=\s|$)[ \t]*/i
+export const YASEEN_TAG = '#yaseen'
+
 /** Tree node → bullet: the paragraph marker and note markers come out of the text (wherever they are). */
 function bulletOf(n: TreeNode): Bullet {
   let text = n.text
@@ -298,7 +281,10 @@ function bulletOf(n: TreeNode): Bullet {
   if (st) { slideTitle = Number(st[1]); text = cut(text, st.index, st[0].length) }
   const sr = p !== null ? SLIDE_REF_RE.exec(text) : null   // a slide marker with no paragraph is the slide image itself
   if (sr) { slide = Number(sr[1]); text = cut(text, sr.index, sr[0].length) }
+  let yaseen = false
+  text = text.trim().replace(YASEEN_RE, () => { yaseen = true; return '' })
   const b: Bullet = { text: text.trim(), p, children: n.children.map(bulletOf) }
+  if (yaseen) b.yaseen = true
   if (slideTitle !== undefined) b.slideTitle = slideTitle
   if (slide !== undefined) b.slide = slide
   if (n.marker !== '*') b.marker = n.marker
@@ -319,6 +305,7 @@ export const fileMark: MarkOf = (b) => [b.p !== null ? `<!-- p:${b.p} -->` : '',
 export function bulletLines(b: Bullet, depth: number, mark: MarkOf = fileMark, textOf: (text: string) => string = (t) => t): string[] {
   const pad = INDENT.repeat(depth), m = b.marker ?? '*'
   const lines = textOf(b.text).split('\n')
+  if (b.yaseen) lines[0] = lines[0] ? `${YASEEN_TAG} ${lines[0]}` : YASEEN_TAG   // the tag is the first token
   const tail = mark(b)
   if (tail) lines[lines.length - 1] = lines[lines.length - 1] ? `${lines[lines.length - 1]} ${tail}` : tail
   const out = [lines[0] ? `${pad}${m} ${lines[0]}` : `${pad}${m}`]
@@ -493,7 +480,7 @@ export const emptyOriginals = (): Originals => ({ version: 1, parts: {} })
 /** For a part with no sidecar entry (files made before it): the current marked bullets without `==` are the originals. */
 export function originalsFromSection(s: NotesSection): PartOriginals {
   const out: PartOriginals = {}
-  for (const b of markedOf(s)) if (!hasUserWords(b.text)) (out[b.p!] ??= []).push(b.text)
+  for (const b of markedOf(s)) if (!hasUserWords(b.text) && !b.yaseen) (out[b.p!] ??= []).push(b.text)
   return out
 }
 
@@ -537,7 +524,7 @@ export function assignOriginals(bullets: Bullet[], orig: PartOriginals): Map<Bul
 
 /** A marked bullet that is not the AI's as written: reworded, with Yasin's words, with no original, or sent as a note. */
 export const isEdited = (b: Bullet, a: Assigned | null | undefined): boolean =>
-  b.p !== null && (hasUserWords(b.text) || !a || canon(a.text) !== canon(b.text) || !!b.notes?.length)
+  b.p !== null && (!!b.yaseen || hasUserWords(b.text) || !a || canon(a.text) !== canon(b.text) || !!b.notes?.length)
 
 /**
  * A part Yasin touched: any bullet of his (no marker), any edited AI bullet, Yasin's words anywhere, a legacy `Yasin:`
@@ -551,8 +538,8 @@ export function partTouched(s: NotesSection, orig?: PartOriginals): boolean {
   return all.some((b) => isEdited(b, assigned.get(b)))
 }
 
-/** Restore original: the bullet's text becomes the AI's again (Yasin's words in it go; children stay). */
-export function restoreOriginal(b: Bullet, a: Assigned): void { b.text = a.text }
+/** Restore original: the bullet's text becomes the AI's again (Yaseen's words and the `#yaseen` tag go; children stay). */
+export function restoreOriginal(b: Bullet, a: Assigned): void { b.text = a.text; delete b.yaseen }
 
 // ---------- merge (regenerate / refresh / editor saves) ----------
 
@@ -583,7 +570,7 @@ export function sectionAt(doc: NotesDoc, t: number): NotesSection | undefined {
 
 /** Legacy `Yasin:` markdown → Yasin's bullets (`==…==`, no marker). */
 export function yasinBullets(md: string): Bullet[] {
-  const conv = (n: TreeNode): Bullet => ({ text: wrapUser(n.text), p: null, children: n.children.map(conv) })
+  const conv = (n: TreeNode): Bullet => ({ text: n.text, p: null, yaseen: true, children: n.children.map(conv) })
   return dropEmpty(parseTree(md.split('\n')).map(conv))
 }
 
@@ -594,6 +581,20 @@ export function migrateYasin(s: NotesSection): Bullet[] {
   const bs = ys.flatMap((y) => yasinBullets(y.md))
   s.items = [...s.items.filter((i) => i.kind !== 'yasin'), ...bs.map((b): BulletItem => ({ kind: 'bullet', bullet: b }))]
   return bs
+}
+
+/**
+ * Legacy `==…==` (the first inline version highlighted Yaseen's words): the marks go, the bullet gets `#yaseen`.
+ * Read forever; written in the new form whenever the app writes the part. → a copy (old → new map for lookups).
+ */
+export function migrateUserWords(bs: Bullet[], map = new Map<Bullet, Bullet>()): { bullets: Bullet[]; map: Map<Bullet, Bullet> } {
+  const conv = (b: Bullet): Bullet => {
+    const c: Bullet = { ...b, children: b.children.map(conv) }
+    if (hasUserWords(b.text)) { c.text = unmarkUser(b.text); c.yaseen = true }
+    map.set(c, b)
+    return c
+  }
+  return { bullets: bs.map(conv), map }
 }
 
 /**
@@ -668,6 +669,13 @@ export function setAiNotes(doc: NotesDoc, t: number, fresh: Bullet[], paraTime: 
   if (!s) throw new Error(`no part at ${fmtTime(t)}`)
   const old = orig ?? originalsFromSection(s)
   const legacy = new Set(migrateYasin(s))
+  // legacy `==` bullets → `#yaseen` (keeping identity in the legacy set)
+  s.items = s.items.map((i) => {
+    if (i.kind !== 'bullet') return i
+    const { bullets: [c] } = migrateUserWords([i.bullet])
+    if (legacy.has(i.bullet)) legacy.add(c)
+    return { kind: 'bullet', bullet: c }
+  })
   const roots = bulletsOf(s)
   const assigned = assignOriginals(roots, old)
   const pinned = new Set<number>()
@@ -809,6 +817,10 @@ export function editorPart(s0: NotesSection, orig: PartOriginals, timeOf: (b: Bu
   const s: NotesSection = { ...s0, items: [...s0.items] }
   migrateYasin(s)
   const assigned = assignOriginals(bulletsOf(s), orig)
+  // legacy `==` → `#yaseen` (the editor never shows highlights); lookups go through the originals
+  const back = new Map<Bullet, Bullet>()
+  s.items = s.items.map((i) => (i.kind === 'bullet' ? { kind: 'bullet', bullet: migrateUserWords([i.bullet], back).bullets[0] } : i))
+  const src = (b: Bullet): Bullet => back.get(b) ?? b
   const list: { p: number; text: string }[] = []
   const index = new Map<string, number>()
   const oOf = (a: Assigned): number => {
@@ -821,7 +833,7 @@ export function editorPart(s0: NotesSection, orig: PartOriginals, timeOf: (b: Bu
     text: escapeBlockStart,
     bullet: (b) => {
       if (b.p === null) return fileMark(b)
-      const t = timeOf(b), a = assigned.get(b)
+      const t = timeOf(src(b)), a = assigned.get(src(b))
       const fields = [`p:${b.p}`, t !== null ? `t:${fmtT(t)}` : '', a ? `o:${oOf(a)}` : ''].filter(Boolean).join(' ')
       return [`<!-- ${fields} -->`, ...refMarks(b)].join(' ')
     },

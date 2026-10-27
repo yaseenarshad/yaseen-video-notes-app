@@ -71,6 +71,7 @@ export const SLASH_COMMANDS = [
 export function noteText(text: string): string {
   return text
     .replace(/<!--[\s\S]*?-->/g, ' ')
+    .replace(/(^|\s)#yaseen(?=\s|$)/gi, '$1')
     .replace(/(^|\s)\/(?:mochi|note)\b/gi, '$1')
     .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
     .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')

@@ -82,7 +82,7 @@
 .nv-pane .nv-ed .milkdown .ProseMirror { min-height: 28px; }
 .nv-pane .nv-static .ProseMirror p { cursor: text; }
 
-/* Yasin's own words (typed / pasted; `==…==` in the file): a soft green, not the player's yellow phrase highlight */
+/* Yaseen's colour (the #yaseen chip; legacy `==…==` text if any is left): a soft green, not the player's yellow phrase highlight */
 .nv-pane { --nv-me-bg: #dcf1e1; --nv-me-ink: inherit; --nv-me-edge: #3f9b5a; }
 .nv-pane.nv-dark { --nv-me-bg: #1f3a29; --nv-me-ink: #e3f5e8; --nv-me-edge: #6fcf8a; }
 .nv-pane mark { background: var(--nv-me-bg); color: var(--nv-me-ink); border-radius: 3px; padding: 0 1px; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
@@ -152,3 +152,7 @@
 /* a name corrected from general knowledge: `Palmer Luckey <!-- was: Palmer Lucky -->` */
 .nv-pane .nv-was { text-decoration: underline dotted; text-decoration-color: var(--muted); text-underline-offset: 3px; cursor: help; }
 .nv-checks-info summary { color: var(--muted); }
+
+/* `#yaseen`: a bullet Yaseen wrote or changed — a small chip in his colour; his words themselves are plain */
+.nv-pane .nv-yaseen { display: inline-block; font: 600 10.5px/1.6 system-ui, sans-serif; letter-spacing: .02em; color: var(--nv-me-edge);
+  background: var(--nv-me-bg); border-radius: 999px; padding: 0 7px; margin-right: 7px; vertical-align: 2px; user-select: none; }

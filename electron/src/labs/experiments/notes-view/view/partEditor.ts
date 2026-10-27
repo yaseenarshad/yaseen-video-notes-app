@@ -12,9 +12,11 @@
  *   bullet, not its text: Yasin can reword, merge (Backspace keeps the first bullet's marker) or split (Enter: both
  *   halves keep it) — copy / paste keeps them too (`data-nv-*` DOM attributes). A new EMPTY bullet that copied a marker
  *   another bullet still has (Enter at the end of a bullet) drops it: it is Yasin's own bullet.
- * - **Yasin's words:** whatever he types or pastes gets the highlight mark (an appendTransaction over the inserted
- *   ranges; moves — a Backspace join, a drag — keep their own marks; undo / redo and the app's own edits are skipped).
- *   Deleting AI words just deletes them.
+ * - **`#yaseen`:** a bullet whose own words Yaseen changes (typing, pasting, deleting, merging, splitting) gets the
+ *   `nvYaseen` attribute — the `#yaseen` tag first in its text on disk, a "Yaseen" chip here. An appendTransaction in
+ *   the same history step as the edit (so undo takes it back); the app's own edits (restore, slash removal, markers)
+ *   and undo / redo never add it; an AI bullet whose words equal the AI's original again loses it. His words are not
+ *   highlighted (the docs app's highlight mark is still loaded, for old `==…==` text).
  * - **Decorations, never DOM hacks:** the current bullet (follow-along) is a node decoration; the time chip (click =
  *   play), ✎ (edited: the bullet differs from the AI's original; hover shows it + "Restore original") and the 🃏 / 💬
  *   badges of notes made from the bullet are widgets.
@@ -30,6 +32,7 @@ import { editorViewCtx, editorViewOptionsCtx, parserCtx } from '@milkdown/kit/co
 import { extendListItemSchemaForTask } from '@milkdown/kit/preset/gfm'
 import { wrapInBulletListCommand } from '@milkdown/kit/preset/commonmark'
 import { Fragment, type Node as ProseNode } from '@milkdown/kit/prose/model'
+import { Mapping } from '@milkdown/kit/prose/transform'
 import { Plugin, PluginKey, Selection, TextSelection, type EditorState, type Transaction } from '@milkdown/kit/prose/state'
 import { Decoration, DecorationSet, type EditorView } from '@milkdown/kit/prose/view'
 import { $prose, $remark, callCommand } from '@milkdown/kit/utils'
@@ -114,8 +117,8 @@ export const NO_MARK = 'nv-no-yasin-mark'
 const MARK_RE = /<!--\s*(p|slide-title|slide|note):([\w.-]+)((?:\s+[a-z]+:[\w.]*)*)\s*-->/g
 interface Md { type: string; value?: string; children?: Md[]; [k: string]: unknown }
 /** nvSlide = a slide image bullet; nvSlideRef = slide-only text `(slide)`; nvSlideTitle = a heading from a slide title. */
-interface Markers { nvP: number | null; nvSlide: number | null; nvSlideRef: number | null; nvSlideTitle: number | null; nvT: number | null; nvO: number | null; nvNotes: string | null }
-const NO_MARKERS: Markers = { nvP: null, nvSlide: null, nvSlideRef: null, nvSlideTitle: null, nvT: null, nvO: null, nvNotes: null }
+interface Markers { nvP: number | null; nvSlide: number | null; nvSlideRef: number | null; nvSlideTitle: number | null; nvT: number | null; nvO: number | null; nvNotes: string | null; nvYaseen: boolean }
+const NO_MARKERS: Markers = { nvP: null, nvSlide: null, nvSlideRef: null, nvSlideTitle: null, nvT: null, nvO: null, nvNotes: null, nvYaseen: false }
 
 /** Reads the marker comments of an html value (null when it holds anything else). */
 function readMarkers(value: string, into: Markers): boolean {
@@ -151,6 +154,13 @@ function takeMarkers(item: Md): Markers {
     break
   }
   for (const v of found) readMarkers(v, out)
+  // `#yaseen` first: Yaseen wrote or changed this bullet (an attribute; the editor shows a chip)
+  const head = kids[0]
+  if (head?.type === 'text' && typeof head.value === 'string' && /^#yaseen(?=\s|$)/i.test(head.value)) {
+    out.nvYaseen = true
+    head.value = head.value.replace(/^#yaseen[ \t]*/i, '')
+    if (!head.value) kids.shift()
+  }
   if (out.nvP !== null && out.nvSlide !== null) { out.nvSlideRef = out.nvSlide; out.nvSlide = null }   // text from a slide, not the slide
   const tail = kids[kids.length - 1]
   if (found.length && tail?.type === 'text' && typeof tail.value === 'string') tail.value = tail.value.replace(/[ \t]+$/, '')
@@ -166,7 +176,7 @@ const listItemMarkers = extendListItemSchemaForTask.extendSchema((prev) => (ctx)
     content: 'block+',   // as createCrepe does: image bullets and `* - nested` round-trip
     attrs: {
       ...base.attrs,
-      nvP: { default: null }, nvSlide: { default: null }, nvSlideRef: { default: null }, nvSlideTitle: { default: null }, nvT: { default: null }, nvO: { default: null }, nvNotes: { default: null },
+      nvP: { default: null }, nvSlide: { default: null }, nvSlideRef: { default: null }, nvSlideTitle: { default: null }, nvT: { default: null }, nvO: { default: null }, nvNotes: { default: null }, nvYaseen: { default: false },
     },
     parseDOM: (base.parseDOM ?? []).map((rule) => ({
       ...rule,
@@ -174,13 +184,13 @@ const listItemMarkers = extendListItemSchemaForTask.extendSchema((prev) => (ctx)
         const a = typeof rule.getAttrs === 'function' ? (rule.getAttrs as (d: unknown) => Record<string, unknown> | false | null)(dom) : {}
         if (a === false) return false
         const d = typeof dom === 'string' ? {} as DOMStringMap : dom.dataset
-        return { ...(a ?? {}), nvP: numAttr(d.nvP), nvSlide: numAttr(d.nvSlide), nvSlideRef: numAttr(d.nvSlideRef), nvSlideTitle: numAttr(d.nvSlideTitle), nvT: numAttr(d.nvT), nvO: numAttr(d.nvO), nvNotes: d.nvNotes || null }
+        return { ...(a ?? {}), nvP: numAttr(d.nvP), nvSlide: numAttr(d.nvSlide), nvSlideRef: numAttr(d.nvSlideRef), nvSlideTitle: numAttr(d.nvSlideTitle), nvT: numAttr(d.nvT), nvO: numAttr(d.nvO), nvNotes: d.nvNotes || null, nvYaseen: d.nvYaseen === 'true' }
       },
     })),
     toDOM: (node) => {
       const spec = base.toDOM!(node) as unknown as [string, Record<string, unknown>, 0]
       const a = node.attrs
-      return [spec[0], { ...spec[1], 'data-nv-p': a.nvP ?? undefined, 'data-nv-slide': a.nvSlide ?? undefined, 'data-nv-slide-ref': a.nvSlideRef ?? undefined, 'data-nv-slide-title': a.nvSlideTitle ?? undefined, 'data-nv-t': a.nvT ?? undefined, 'data-nv-o': a.nvO ?? undefined, 'data-nv-notes': a.nvNotes ?? undefined }, 0]
+      return [spec[0], { ...spec[1], 'data-nv-p': a.nvP ?? undefined, 'data-nv-slide': a.nvSlide ?? undefined, 'data-nv-slide-ref': a.nvSlideRef ?? undefined, 'data-nv-slide-title': a.nvSlideTitle ?? undefined, 'data-nv-t': a.nvT ?? undefined, 'data-nv-o': a.nvO ?? undefined, 'data-nv-notes': a.nvNotes ?? undefined, 'data-nv-yaseen': a.nvYaseen ? 'true' : undefined }, 0]
     },
     parseMarkdown: {
       match: ({ type }) => type === 'listItem',
@@ -208,11 +218,13 @@ const listItemMarkers = extendListItemSchemaForTask.extendSchema((prev) => (ctx)
         ].filter(Boolean)
         node.content.forEach((child, _o, i) => {
           state.next(child)
-          if (i !== 0 || !markers.length) return
+          if (i !== 0 || (!markers.length && !a.nvYaseen)) return
           const li = (state as unknown as { top: () => { children?: Md[] } | undefined }).top()
           const para = li?.children?.[li.children.length - 1]
           if (!para || para.type !== 'paragraph') return
           para.children ??= []
+          // the tag goes first, as raw html so the serializer never escapes its `#`
+          if (a.nvYaseen) para.children.unshift(...(para.children.length ? [{ type: 'html', value: '#yaseen' }, { type: 'text', value: ' ' }] : [{ type: 'html', value: '#yaseen' }]))
           for (const m of markers) { if (para.children.length) para.children.push({ type: 'text', value: ' ' }); para.children.push({ type: 'html', value: m }) }
         })
         state.closeNode()
@@ -254,47 +266,6 @@ const imageTitles = $remark('nv-image-titles', () => () => (tree: unknown) => {
   const walk = (n: Md) => { if (n.type === 'image' && n.title == null) delete n.title; n.children?.forEach(walk) }
   walk(tree as Md)
 })
-
-// ---------- Yasin's words: the highlight mark on everything typed / pasted ----------
-
-const yasinMarks = $prose((ctx) => new Plugin({
-  key: new PluginKey('nv-yasin-marks'),
-  appendTransaction(trs, _old, state) {
-    let ranges: { from: number; to: number }[] = []
-    for (const tr of trs) {
-      ranges = ranges.map((r) => ({ from: tr.mapping.map(r.from, 1), to: tr.mapping.map(r.to, -1) })).filter((r) => r.to > r.from)
-      if (!tr.docChanged || tr.getMeta(NO_MARK) || tr.getMeta('history$') || tr.getMeta('addToHistory') === false) continue
-      const deleted: string[] = []
-      const fresh: { from: number; to: number }[] = []
-      tr.steps.forEach((step, i) => {
-        const before = tr.docs[i]
-        const rest = tr.mapping.slice(i + 1)
-        step.getMap().forEach((oldStart, oldEnd, newStart, newEnd) => {
-          if (oldEnd > oldStart) deleted.push(before.textBetween(oldStart, oldEnd, '\n', ''))
-          if (newEnd > newStart) { const f = rest.map(newStart, 1), t = rest.map(newEnd, -1); if (t > f) fresh.push({ from: f, to: t }) }
-        })
-      })
-      for (const r of fresh) {
-        const text = tr.doc.textBetween(r.from, r.to, '\n', '')
-        if (!text.trim() || deleted.includes(text)) continue   // structure only, or a move: words keep their own marks
-        ranges.push(r)
-      }
-    }
-    if (!ranges.length) return null
-    const type = highlightSchema.type(ctx)
-    const mark = type.create({ color: null })
-    const out = state.tr
-    for (const r of ranges) {
-      state.doc.nodesBetween(r.from, r.to, (node, pos, parent) => {
-        if (!node.isText) return true
-        if (!parent?.type.allowsMarkType(type) || type.isInSet(node.marks)) return false
-        out.addMark(Math.max(pos, r.from), Math.min(pos + node.nodeSize, r.to), mark)
-        return false
-      })
-    }
-    return out.docChanged ? out : null
-  },
-}))
 
 /** Paste / drop of image bytes (the docs app's clipboardPaste.ts image branch, without its text paste modes). */
 const imagePaste = (image: ImageOptions) =>
@@ -359,6 +330,65 @@ export async function createPartEditor(o: PartEditorOptions): Promise<PartEditor
     return !f || !first || !first.content.eq(f)
   }
 
+  // ---------- `#yaseen`: a bullet whose own words Yaseen changed (typed, pasted, deleted) ----------
+  /** The bullet's first block equals the AI's original again → no tag. */
+  const backToOriginal = (node: ProseNode): boolean => {
+    const a = node.attrs, first = node.firstChild
+    if (a.nvP == null || a.nvO == null || !first) return false
+    const f = original(a.nvO)
+    return !!f && first.content.eq(f)
+  }
+  const yaseenTag = $prose(() => new Plugin({
+    key: new PluginKey('nv-yaseen-tag'),
+    appendTransaction(trs, oldState, state) {
+      if (!trs.some((t) => t.docChanged)) return null
+      const all = new Mapping()
+      trs.forEach((t) => all.appendMapping(t.mapping))
+      const inv = all.invert()
+      // list items touched by Yaseen's own edits (not the app's: restore, slash removal, markers; not undo / redo)
+      const touched = new Set<number>()
+      trs.forEach((t, j) => {
+        if (!t.docChanged || t.getMeta(NO_MARK) || t.getMeta('history$') || t.getMeta('addToHistory') === false) return
+        const later = new Mapping()
+        trs.slice(j + 1).forEach((u) => later.appendMapping(u.mapping))
+        t.steps.forEach((step, i) => {
+          const rest = t.mapping.slice(i + 1)
+          step.getMap().forEach((_os, _oe, ns, ne) => {
+            const a = later.map(rest.map(ns, -1), -1), b = later.map(rest.map(ne, 1), 1)
+            state.doc.nodesBetween(Math.max(0, a - 1), Math.min(state.doc.content.size, b + 1), (node, pos) => {
+              if (node.type.name === 'list_item') touched.add(pos)
+              return true
+            })
+          })
+        })
+      })
+      const tr = state.tr
+      for (const pos of touched) {
+        const node = state.doc.nodeAt(pos)
+        if (!node || node.type.name !== 'list_item' || node.attrs.nvYaseen) continue
+        const was = oldState.doc.nodeAt(inv.map(pos, 1))
+        const same = was?.type.name === 'list_item' && !!was.firstChild && !!node.firstChild && was.firstChild.eq(node.firstChild)
+        if (!same && !backToOriginal(node)) tr.setNodeMarkup(pos, undefined, { ...node.attrs, nvYaseen: true })
+      }
+      // an AI bullet whose words are the AI's again (undoing by hand, Restore original) loses the tag
+      state.doc.descendants((node, pos) => {
+        if (node.type.name === 'list_item' && node.attrs.nvYaseen && backToOriginal(node)) tr.setNodeMarkup(pos, undefined, { ...node.attrs, nvYaseen: false })
+        return true
+      })
+      return tr.docChanged ? tr.setMeta(NO_MARK, true) : null
+    },
+  }))
+
+  const yaseenChip = () => {
+    const s = document.createElement('span')
+    s.className = 'nv-yaseen'
+    s.textContent = 'Yaseen'
+    s.title = 'You wrote or changed this bullet (#yaseen)'
+    s.setAttribute('contenteditable', 'false')
+    s.addEventListener('mousedown', (e) => { e.preventDefault(); e.stopPropagation() })
+    return s
+  }
+
   const chip = (t: number) => () => {
     const s = document.createElement('span')
     s.className = 'nv-pm'
@@ -408,6 +438,7 @@ export async function createPartEditor(o: PartEditorOptions): Promise<PartEditor
       const a = node.attrs, first = node.firstChild
       if (first && first.isTextblock) {
         const end = pos + first.nodeSize   // the end of the first block's content
+        if (a.nvYaseen) decos.push(Decoration.widget(pos + 2, yaseenChip, { side: -2, key: 'yaseen', ignoreSelection: true, stopEvent: () => true }))
         if (a.nvSlideTitle != null) decos.push(Decoration.widget(pos + 2, slideIcon(a.nvSlideTitle), { side: -1, key: `s${a.nvSlideTitle}`, ignoreSelection: true, stopEvent: () => true }))
         if (edited(node)) decos.push(Decoration.widget(end, pencil(a.nvO), { side: 1, key: `e${a.nvO ?? 'x'}`, ignoreSelection: true, stopEvent: () => true }))
         if (a.nvNotes) for (const id of String(a.nvNotes).split(',')) decos.push(Decoration.widget(end, badge(id), { side: 2, key: `n${id}:${badgeGen}`, ignoreSelection: true, stopEvent: () => true }))
@@ -497,7 +528,7 @@ export async function createPartEditor(o: PartEditorOptions): Promise<PartEditor
     .use(createImageView(o.image))
     .use(imagePaste(o.image))
     .use(dropCopiedMarkers)
-    .use(yasinMarks)
+    .use(yaseenTag)
     .use(decorations)
     .use(slash)
   // Crepe adds an empty paragraph after a document that ends in a list: not an edit

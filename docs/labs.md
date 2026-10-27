@@ -480,8 +480,8 @@ The `notes-view` experiment (player, on by default; `experiments/notes-view/`, d
 **Transcript | Notes** switch at the top left of the transcript column (⇧T). Notes = the video part by part (chapters,
 else ~5-minute windows on paragraph boundaries). Each part is ONE editor (the docs app's Milkdown Crepe + its vendored
 add-ons) holding the 🤖 AI notes in the user's notes format (`claude -p`, one part at a time, notes-format.md read fresh
-each run), the part's slides (from `slides.json`) and the user's own words — typed or pasted text is highlighted
-automatically and stored as `==…==`; AI bullets can be reworded, merged, split or deleted (✎ + "Restore original"
+each run), the part's slides (from `slides.json`) and the user's own words — a bullet the user writes or changes gets a
+"Yaseen" chip (the tag `#yaseen` first in its text; legacy `==…==` highlighting is read and migrated); AI bullets can be reworded, merged, split or deleted (✎ + "Restore original"
 from the `.notes-ai.json` sidecar). Every AI bullet keeps its source paragraph as a node attribute (`<!-- p:N -->`),
 so it plays on click and lights up during playback whatever its text. Below, the part's 💬 transcript notes
 (read-only mirror). Right-click a bullet or type `/mochi` / `/note` to make a real 💬 transcript note (the player's
@@ -498,15 +498,16 @@ the AI's originals in `<slug>.notes-ai.json`). The same code can write it beside
 # Notes — <video title>
 
 * [12:14](https://www.youtube.com/watch?v=ID&t=734s) Firecracker VMs
-   * Agent runs on its own computer ==my own words== = a Linux box (Firecracker VM) <!-- p:41 -->
-      * ==a child I typed==
+   * #yaseen Agent runs on its own computer, my own words = a Linux box (Firecracker VM) <!-- p:41 -->
+      * #yaseen a child I typed
       * Easy to snapshot the machine → shut it down → start it back up <!-- p:42 --> <!-- note:k3j9a0b -->
    * ![Slide 12 · 12:20](slides/slide-012.jpg) <!-- slide:12 -->
-   * ==my own bullet==
+   * #yaseen my own bullet
 ```
 
 Bullets only (one optional H1), 3-space indents; a part = `* [m:ss](url&t=Ns) Title`; `<!-- p:N -->` = the paragraph
-a bullet follows; no marker = the user's own bullet; `==…==` = the user's words; `<!-- note:<id> -->` = sent as a 💬
+a bullet follows; no marker = the user's own bullet; `#yaseen` first = the user wrote or changed the
+bullet (legacy `==…==` = the user's words, read and migrated); `<!-- note:<id> -->` = sent as a 💬
 transcript note; slides end with `<!-- slide:N -->`. The first version's `* Yasin:` subtree (the separate editor) is
 legacy: still read, shown inline at the end of its part and written in the inline form on the next save. Every write:
 `withFileLock` + `atomicWrite`, read fresh. Regenerating a part keeps every bullet the user touched (and the AI bullets

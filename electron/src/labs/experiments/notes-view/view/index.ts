@@ -82,9 +82,9 @@ const FOLD_UP = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stro
 // ---------- the static copy of a part (before its editor exists) ----------
 
 const MARK_RE = /[ \t]*<!--\s*(p|slide-title|slide|note):([\w.-]+)((?:\s+[a-z]+:[\w.]*)*)\s*-->/g
-interface SNode { text: string; p: number | null; slide: number | null; slideTitle: number | null; t: number | null; notes: string[]; children: SNode[] }
+interface SNode { text: string; p: number | null; slide: number | null; slideTitle: number | null; t: number | null; notes: string[]; yaseen: boolean; children: SNode[] }
 function staticNode(n: TreeNode): SNode {
-  const out: SNode = { text: '', p: null, slide: null, slideTitle: null, t: null, notes: [], children: n.children.map(staticNode) }
+  const out: SNode = { text: '', p: null, slide: null, slideTitle: null, t: null, notes: [], yaseen: false, children: n.children.map(staticNode) }
   out.text = n.text.replace(MARK_RE, (_m, kind: string, v: string, fields: string) => {
     if (kind === 'p') out.p = Number(v)
     if (kind === 'slide') out.slide = Number(v)
@@ -95,6 +95,7 @@ function staticNode(n: TreeNode): SNode {
     return ''
   }).trim()
   if (out.p !== null) out.slide = null   // with a paragraph it is text from a slide, not the slide image
+  out.text = out.text.replace(/^#yaseen(?=\s|$)[ \t]*/i, () => { out.yaseen = true; return '' })
   return out
 }
 const imageSrc = (src: string) => (/^[a-z][a-z0-9+.-]*:/i.test(src) ? src : BASE + 'file/' + src.replace(/^\/+/, '').split('/').map(encodeURIComponent).join('/'))
@@ -353,6 +354,7 @@ export function mount(L: Labs, host: HTMLElement) {
       const isSlide = n.slide !== null
       let wrap: HTMLElement | null = null
       const b = bullet((p) => {
+        if (n.yaseen) { const y = el('span', 'nv-yaseen', 'Yaseen'); y.title = 'You wrote or changed this bullet (#yaseen)'; p.append(y) }
         if (n.slideTitle !== null) { const ic = el('span', 'nv-si', '🖼'); ic.title = `From slide ${n.slideTitle}'s title`; p.append(ic) }
         inline(n.text, p)
         wrap = p.querySelector('.image-view')
