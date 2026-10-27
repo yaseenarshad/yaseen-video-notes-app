@@ -1,0 +1,131 @@
+/* VENDORED from yaseen-docs-app client/src/editor/image/imageModal.css @ 4608f7a8 (2026-10-26). Unchanged. Keep it diffable against the source. */
+/*
+ * The image lightbox (YAZ-1656) — classes applied by ImageModal.tsx.
+ *
+ * Same overlay shape and stack position as `.drawing-modal-overlay` (fixed, centred, z-index 70):
+ * one of these is open at a time and nothing else opens over it. Unlike the drawing sheet there is
+ * no chrome to speak of — the image IS the modal, kept inside the viewport by `95vw` / `95vh` and
+ * `object-fit: contain`, with a one-line caption under it.
+ *
+ * The scrim, caption and ✕ are LITERAL colours on purpose, not theme tokens: a lightbox is dark in
+ * both appearances (the image is the only light source), and `--fg` under `data-theme="light"` is
+ * near-black — unreadable on this scrim. Light-on-black reads the same on either theme.
+ *
+ * The gallery bar (`.image-modal__nav`) is the exception: a small pill fixed to the bottom centre,
+ * drawn in the app's own tokens (`--bg`, `--border`, `--fg-muted`) so it reads as a piece of app
+ * chrome sitting ON the scrim rather than part of the picture — it carries controls, not content,
+ * and it should look like the rest of the app's pills whichever theme is on. Only rendered when
+ * there is more than one image (ImageModal.tsx decides).
+ */
+
+.image-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.75);
+}
+
+/* The overlay takes focus on mount (so Esc lands) — never announce that with a ring. */
+.image-modal-overlay:focus {
+  outline: none;
+}
+
+.image-modal {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  max-width: 95vw;
+  max-height: 95vh;
+}
+
+.image-modal__img {
+  display: block;
+  max-width: 95vw;
+  max-height: 95vh;
+  object-fit: contain;
+  border-radius: 4px;
+}
+
+/* A caption pushes the image up by its own height, so the pair still fits the viewport. */
+.image-modal:has(.image-modal__caption) .image-modal__img {
+  max-height: calc(95vh - 28px);
+}
+
+.image-modal__caption {
+  font-size: 13px;
+  color: #dadada;
+  max-width: 95vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.image-modal__close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  padding: 4px 9px;
+  font-size: 13px;
+  color: #dadada;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 6px;
+}
+
+.image-modal__close:hover {
+  background: rgba(0, 0, 0, 0.6);
+}
+
+/* The gallery bar: ← "n / m" → in a pill at the bottom centre, over the scrim, under nothing. */
+.image-modal__nav {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 8px;
+  color: var(--fg-muted);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+
+.image-modal__arrow {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  line-height: 1;
+  color: inherit;
+  background: transparent;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.image-modal__arrow:hover:not(:disabled) {
+  color: var(--accent);
+}
+
+/* The end of the gallery: the arrow stays where it is, dimmed, so the bar never shifts. */
+.image-modal__arrow:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.image-modal__count {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  min-width: 3.5em;
+  text-align: center;
+}

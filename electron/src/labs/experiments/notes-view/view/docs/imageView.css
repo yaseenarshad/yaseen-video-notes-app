@@ -1,0 +1,176 @@
+/* VENDORED from yaseen-docs-app client/src/editor/image/imageView.css @ 4608f7a8 (2026-10-26). Unchanged. Keep it diffable against the source. */
+/*
+ * Image node view (YAZ-1656) — classes applied by imageView.ts.
+ *
+ * Every rule is scoped under `.milkdown` on purpose (the drawing preview's lesson): Crepe's reset
+ * carries `.milkdown * { margin: 0; padding: 0 }` at the same specificity as a bare class and
+ * loads after this file, so an unscoped `.image-view` would silently lose its spacing.
+ *
+ * The wrapper is `inline-block` because the node is INLINE in the schema (an image sits in a
+ * paragraph, beside text); `position: relative` anchors the handles to its box. `max-width:
+ * 100%` on the image keeps a wide bitmap — or an over-eager `|width` — inside the editor column.
+ *
+ * Every colour is a theme token (`--accent`, `--bg`, `--border`, `--fg-muted`), so the selected
+ * ring, the handles and the broken chip re-key with `data-theme` like the rest of the editor —
+ * nothing here is a literal that reads on one appearance only.
+ */
+
+.milkdown .image-view {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  vertical-align: baseline;
+  line-height: 0;
+}
+
+.milkdown .image-view img {
+  display: block;
+  /* The `|width` from the alt, set by the node view as a custom property (not `style.width`) so a
+     stylesheet state — the folded chip below — can override it without `!important`. */
+  width: var(--image-width, auto);
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+}
+
+/* Loading is QUIET: no box, no spinner — a fast read must not flash a frame that then vanishes. */
+.milkdown .image-view--loading img {
+  min-width: 1px;
+  min-height: 1px;
+}
+
+/* Selected (ProseMirror's NodeSelection) — the accent ring says "this is the thing your keys act on". */
+.milkdown .image-view.is-selected img {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/*
+ * The resize handles: eight small accent squares — four corners, four edge midpoints — visible
+ * while the node is selected (and on hover, so they can be found before the first click). Hidden
+ * while broken — there is no image to size. Every handle changes the width only (aspect locked),
+ * the cursor just says which way to pull.
+ */
+.milkdown .image-view__handle {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border: 1px solid var(--bg);
+  border-radius: 2px;
+  background: var(--accent);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.milkdown .image-view__handle--nw { top: -5px; left: -5px; cursor: nwse-resize; }
+.milkdown .image-view__handle--se { bottom: -5px; right: -5px; cursor: nwse-resize; }
+.milkdown .image-view__handle--ne { top: -5px; right: -5px; cursor: nesw-resize; }
+.milkdown .image-view__handle--sw { bottom: -5px; left: -5px; cursor: nesw-resize; }
+.milkdown .image-view__handle--n { top: -5px; left: calc(50% - 5px); cursor: ns-resize; }
+.milkdown .image-view__handle--s { bottom: -5px; left: calc(50% - 5px); cursor: ns-resize; }
+.milkdown .image-view__handle--w { left: -5px; top: calc(50% - 5px); cursor: ew-resize; }
+.milkdown .image-view__handle--e { right: -5px; top: calc(50% - 5px); cursor: ew-resize; }
+
+.milkdown .image-view.is-selected .image-view__handle,
+.milkdown .image-view:hover .image-view__handle,
+.milkdown .image-view--resizing .image-view__handle {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* A read-only editor (the outline's seed guard, a hover preview) has no resize gesture — and no handles to promise one. */
+.milkdown .ProseMirror[contenteditable='false'] .image-view__handle {
+  display: none;
+}
+
+/* No transition mid-drag: the width must follow the pointer exactly. */
+.milkdown .image-view--resizing {
+  user-select: none;
+}
+
+.milkdown .image-view--resizing img {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Broken: missing / unreadable / 404. An inert chip that names the src as written, so the line is fixable. */
+.milkdown .image-view--broken {
+  line-height: normal;
+}
+
+.milkdown .image-view__broken {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--fg-muted);
+  font-size: 0.85em;
+  padding: 0.05em 0.4em;
+  white-space: nowrap;
+}
+
+/* Folded image bullet (YAZ-1709): the outline fold plugin sets the attribute as a node decoration;
+   the image becomes a text-height thumbnail and nothing else — no label, because a pasted image's
+   alt is its file name and Yasin names images by typing beside them on the bullet. No handles —
+   there is nothing to size. The node view knows nothing about folding. Not while broken: a broken
+   image is already a one-line inert chip, and folding leaves it exactly as it is. */
+.milkdown .image-view[data-outline-folded-image='true']:not(.image-view--broken) {
+  line-height: inherit;
+  vertical-align: top;
+}
+/* One fixed box for every chip, whatever the image's shape (cropped to fill). Sized FROM the line:
+   the paragraph's line box is `--edit-line-height` × 1em (the user's line-spacing setting,
+   app.css); the chip is that minus 4px, top-aligned with a 2px margin, so its margin box is always
+   2px shorter than the line and a chip row is exactly as tall as a text row (measured: a
+   middle-aligned chip grew the row by 2px). */
+.milkdown .image-view[data-outline-folded-image='true'] img {
+  display: inline-block;
+  height: calc(var(--edit-line-height, 1.5) * 1em - 4px);
+  width: 1.75em;
+  margin-top: 2px;
+  object-fit: cover;
+  vertical-align: top;
+  cursor: pointer; /* the thumbnail is the click target (handleClickOn checks for the <img>) */
+}
+.milkdown .image-view[data-outline-folded-image='true'] .image-view__handle {
+  display: none;
+}
+
+/*
+ * Corner fold button (YAZ-1709): the chip's click in reverse. Rendered by the node view on every
+ * image, shown only where the fold plugin says the image is foldable (inside a list item) and the
+ * image is expanded; appears on hover/selection like the handles. Its press is handled by the
+ * fold plugin's mousedown hook, not here. (A broken image has no button: `broken()` replaces the
+ * wrapper's children.)
+ */
+.milkdown .image-view__fold {
+  position: absolute;
+  top: 6px;
+  left: 6px; /* top-LEFT: nearest the bullet and the gutter chevron it mirrors */
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--fg-muted);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.milkdown .image-view__fold svg {
+  width: 14px;
+  height: 14px;
+}
+.milkdown .image-view[data-outline-foldable-image='true']:not([data-outline-folded-image='true']) .image-view__fold {
+  display: flex;
+}
+.milkdown .image-view:hover .image-view__fold,
+.milkdown .image-view.is-selected .image-view__fold {
+  opacity: 1;
+}
+.milkdown .image-view__fold:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}

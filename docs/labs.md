@@ -473,3 +473,52 @@ LABS.transcript.addInlineCard(p, w, node) → { el, remove() } | null
 | mode | who | while it is on |
 |---|---|---|
 | `slides` | slides follow along / deck reader | ← → (J K Enter Esc in the deck) step slides; the video keeps playing (follow along: small in a corner; the deck: hidden) |
+
+## Additions (notes-view)
+
+The `notes-view` experiment (player, on by default; `experiments/notes-view/`, details in its `GUIDE.md`): a
+**Transcript | Notes** switch at the top left of the transcript column (⇧T). Notes = the video part by part (chapters,
+else ~5-minute windows on paragraph boundaries); each part has 🤖 AI notes in the user's notes format (`claude -p`, one
+part at a time, notes-format.md read fresh each run; every bullet carries its source paragraph, so it plays on click
+and lights up during playback), the part's slides (from `slides.json`), the user's 💬 transcript notes (read-only
+mirror) and a 🧑 Yasin editor (the docs app's Milkdown Crepe + its vendored add-ons). Follow / Back to now work as in
+the transcript; switching views lands on the same moment.
+
+### The notes file: `<slug>.notes.md`
+
+Labs: `labs-cache/<videoId>/<slug>.notes.md` (+ `notes-images/` for pasted images; slide srcs point at `slides/`).
+The same code can write it beside the transcript for the normal app (`notesPath(…, { beside: true })`).
+
+```
+# Notes — <video title>
+
+* [12:14](https://www.youtube.com/watch?v=ID&t=734s) Firecracker VMs
+   * Agent runs on its own computer = a Linux box (Firecracker VM) <!-- p:41 -->
+      * Easy to snapshot the machine → shut it down → start it back up <!-- p:42 -->
+   * ![Slide 12 · 12:20](slides/slide-012.jpg) <!-- slide:12 -->
+   * Yasin:
+      * this is why always-on agents are cheap to pause
+```
+
+Bullets only (one optional H1), 3-space indents; a part = `* [m:ss](url&t=Ns) Title`; AI bullets end with
+`<!-- p:N -->` (a child without one inherits it), slides with `<!-- slide:N -->`; the user's notes are the children of
+`* Yasin:`; any other bullet under a part is kept verbatim. Every write: `withFileLock` + `atomicWrite`, read fresh.
+Regenerating AI notes replaces only that part's AI bullets; slides.json changes replace only slide bullets; `Yasin:`
+is never touched (unit tests: `notesView.test.ts`). Pre-generated with `claude` logged out (prompts dumped, answered
+by hand, run through the real validator: `tool.ts prompts | apply | check`): Stanford CS146S (L1OBRtfPS34, 10 parts,
+410 bullets) and the Flying Tesla episode (dthaDyttHns, 15 parts, 1,099 bullets), in the real Labs cache.
+
+Shared-file edits (each commented `// added by notes-view`):
+
+```
+LABS.transcript.setFollow(on)   Follow on / off, exactly like the Follow button / F (a view over the transcript turns it
+                                off when the user scrolls it, and follows the video while it is on)
+```
+- `src/labs/page/api.js` — `setFollow`.
+- `electron.vite.config.ts` — the `iife` plugin: `import x from './entry.ts?iife'` → `{ js, css }`, the file bundled
+  for the browser by esbuild (one minified IIFE; `*.css?inline` → a string). notes-view's `main.ts` serves its Milkdown
+  bundle with it (`/labs/x/notes-view/view.js` + `view.css`), loaded by `player.js` only the first time Notes is shown.
+  Type: `experiments/notes-view/iife.d.ts`.
+- `package.json` — devDependencies `@milkdown/crepe` + `@milkdown/kit` 7.22.1 and the docs app's two patched packages
+  (`@milkdown/components` yaz1410, `@milkdown/plugin-tooltip` yaz2238, tarballs in `experiments/notes-view/vendor/`,
+  pinned with `overrides` exactly like yaseen-docs-app).

@@ -1,0 +1,52 @@
+/* VENDORED EXCERPT from yaseen-docs-app client/src/app.css @ 4608f7a8 (2026-10-26): the note editor's typography
+   rules (`.editor-instance .milkdown …`: system font stack, 16px / 1.5, the 4px block gap, list headings, the
+   ProseMirror padding that leaves room for the fold chevron). ADAPTED for notes-view: the ProseMirror padding is 0
+   (each section's editor is a small block inside the Notes view, not a page) and `--crepe-color-background` is
+   transparent like the docs app's. Keep it diffable against the source. */
+
+.editor-instance .milkdown {
+  --crepe-color-background: transparent;
+}
+
+.editor-instance .milkdown {
+  --crepe-base-font-size: var(--text-size, 16px);
+  --crepe-font-default: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --crepe-font-title: var(--crepe-font-default);
+  --crepe-font-code: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  line-height: var(--edit-line-height, 1.5);
+}
+
+.editor-instance .milkdown .ProseMirror p {
+  line-height: var(--edit-line-height, 1.5);
+  padding: var(--edit-block-gap, 4px) 0;
+}
+
+.editor-instance .milkdown .ProseMirror h1,
+.editor-instance .milkdown .ProseMirror h2,
+.editor-instance .milkdown .ProseMirror h3,
+.editor-instance .milkdown .ProseMirror h4,
+.editor-instance .milkdown .ProseMirror h5,
+.editor-instance .milkdown .ProseMirror h6 {
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.editor-instance .milkdown .ProseMirror li h1,
+.editor-instance .milkdown .ProseMirror li h2,
+.editor-instance .milkdown .ProseMirror li h3,
+.editor-instance .milkdown .ProseMirror li h4,
+.editor-instance .milkdown .ProseMirror li h5,
+.editor-instance .milkdown .ProseMirror li h6 {
+  margin-top: 0;
+  padding: var(--edit-block-gap, 4px) 0;
+}
+
+.editor-instance .milkdown .ProseMirror {
+  padding: 0;            /* docs app: 16px 0 (a page); here a block inside a section */
+  overflow: visible;
+}
+
+.editor-instance .milkdown .ProseMirror > :first-child,
+.editor-instance .milkdown .ProseMirror > .content-dom > :first-child {
+  margin-top: 0;
+}

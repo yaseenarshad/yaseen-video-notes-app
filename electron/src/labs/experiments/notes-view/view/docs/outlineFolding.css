@@ -1,0 +1,58 @@
+/* VENDORED from yaseen-docs-app client/src/editor/outline/outlineFolding.css @ 4608f7a8 (2026-10-26). Unchanged. Keep it diffable against the source. */
+/* Fold chevron (GRO-2011, SVG since GRO-2093): rendered by a ProseMirror widget decoration at the
+   start of a parent list_item's content (`li.list-item > .children > .content-dom`), then pulled
+   into the gutter left of the bullet. Row geometry (`--list-label-offset/height`) comes from
+   bullets.css so the chevron stays centred on the same line as the glyph, headings included. */
+.milkdown .milkdown-list-item-block li.list-item {
+  position: relative;
+}
+
+.outline-toggle {
+  position: absolute;
+  left: -18px;
+  top: var(--list-label-offset, 0px);
+  width: 18px;
+  height: var(--list-label-height, 32px);
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--crepe-color-outline);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.milkdown .milkdown-list-item-block li.list-item:hover > .children > .content-dom > .outline-toggle,
+.outline-toggle:focus-visible,
+.outline-toggle[aria-expanded='false'] {
+  opacity: 1;
+}
+
+.outline-toggle:hover,
+.outline-toggle[aria-expanded='false'] {
+  color: var(--crepe-color-on-surface-variant);
+}
+
+.outline-toggle:focus-visible {
+  outline: 2px solid var(--crepe-color-primary);
+  outline-offset: 1px;
+}
+
+/* GRO-2093: one SVG, ~2x the old text glyph; collapsed = rotated, never a second glyph. */
+.outline-toggle svg {
+  width: var(--fold-chevron-size, 14px);
+  height: var(--fold-chevron-size, 14px);
+  transition: transform 0.12s;
+}
+
+.outline-toggle[aria-expanded='false'] svg {
+  transform: rotate(-90deg);
+}
+
+[data-outline-folded='true'] {
+  display: none;
+}

@@ -21,6 +21,10 @@
     "cli:labs": "node out-labs/main/cli.js"
   },
   "devDependencies": {
+    "@milkdown/components": "file:src/labs/experiments/notes-view/vendor/milkdown-components-7.22.1-yaz1410.tgz",
+    "@milkdown/crepe": "7.22.1",
+    "@milkdown/kit": "7.22.1",
+    "@milkdown/plugin-tooltip": "file:src/labs/experiments/notes-view/vendor/milkdown-plugin-tooltip-7.22.1-yaz2238.tgz",
     "@types/node": "26.2.0",
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.4",
@@ -62,5 +66,9 @@
     "electron@43.4.1": true,
     "esbuild@0.25.12": true,
     "esbuild@0.28.2": true
+  },
+  "overrides": {
+    "@milkdown/components": "$@milkdown/components",
+    "@milkdown/plugin-tooltip": "$@milkdown/plugin-tooltip"
   }
 }

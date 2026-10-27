@@ -1,0 +1,135 @@
+/* VENDORED from yaseen-docs-app client/src/editor/outline/bullets.css @ 4608f7a8 (2026-10-26). Unchanged. Keep it diffable against the source. */
+/* Depth-specific bullet glyphs (GRO-2013), ported from the vault's Obsidian snippet
+   `.obsidian/snippets/google-docs-bullets.css`: ● solid circle / ○ ring / ■ square, repeating
+   every three levels; 2.15em indent per level; marker colour 78% of the text colour.
+   Visual only — markdown untouched. Crepe's DOM: `div.milkdown-list-item-block > li.list-item >
+   .label-wrapper > span.label.bullet > svg` (bullet) / `span.label.ordered` (ordered, untouched).
+   Depth = nesting of `.milkdown-list-item-block` (ordered levels count too, as in Obsidian).
+   Colours derive from `currentColor` / Crepe tokens, so any Crepe theme (light/dark) works.
+   Selectors are prefixed with `.editor-instance` to outrank Crepe's theme regardless of CSS order. */
+.editor-instance .milkdown {
+  --list-indent: 2.15em;
+  /* Gap between the label gutter and the item content (Crepe: 24px gutter + 10px gap). The guide
+     line strip (guideLines.css) reuses this as its width — the strip only centres under the glyph
+     when strip width == this gap. */
+  --list-label-gap: 10px;
+  --list-bullet-size: 0.42em;
+  /* 1.5px at 16px, scaling with the font like the glyphs. Chrome snaps borders to whole device
+     pixels, so this renders as 1px at DPR 1 and 1.5px on retina — same as the snippet's `1.5px`. */
+  --list-ring-border: max(1px, 0.094em);
+  --list-marker-color: color-mix(in srgb, currentColor 78%, transparent);
+  --list-done-color: color-mix(in srgb, currentColor 55%, transparent);
+}
+
+/* Label row geometry, Roam-uniform (GRO-2024/GRO-2071): every row — plain or heading-first
+   (`* # Part 1`) — starts at the row top with no offset, and its label height is the first
+   line's box: font size × line-height + 2 × block-gap padding. Paragraph rows use the
+   `--edit-line-height`/`--edit-block-gap` settings vars (Crepe's stock 32px IS 16px × 1.5 +
+   2 × 4px, so Default reproduces it exactly); heading-first rows use the heading's size × 1.3
+   and the SAME gap padding that app.css gives `li` headings. The size is the level's
+   `--hN-size` from the vault's text formatting (YAZ-3049 D2, YAZ-3067 D12), or, unset, the app.css em scale × the base
+   font size — the same variable and fallback as each app.css `hN` rule: change one, change
+   both. The chevron (outlineFolding.css) reads the same vars. Sizes are in px via the base
+   font size so they resolve the same on the label and on the smaller-font chevron. */
+.editor-instance .milkdown .milkdown-list-item-block > li.list-item {
+  --list-label-offset: 0px;
+  --list-label-height: calc(var(--crepe-base-font-size) * var(--edit-line-height, 1.5) + 2 * var(--edit-block-gap, 4px));
+}
+
+.editor-instance .milkdown .milkdown-list-item-block > li.list-item:has(> .children > .content-dom > h1:is(:first-child, .outline-toggle + *)) {
+  --list-label-height: calc(var(--h1-size, calc(var(--crepe-base-font-size) * 1.802)) * 1.3 + 2 * var(--edit-block-gap, 4px));
+}
+
+.editor-instance .milkdown .milkdown-list-item-block > li.list-item:has(> .children > .content-dom > h2:is(:first-child, .outline-toggle + *)) {
+  --list-label-height: calc(var(--h2-size, calc(var(--crepe-base-font-size) * 1.602)) * 1.3 + 2 * var(--edit-block-gap, 4px));
+}
+
+.editor-instance .milkdown .milkdown-list-item-block > li.list-item:has(> .children > .content-dom > h3:is(:first-child, .outline-toggle + *)) {
+  --list-label-height: calc(var(--h3-size, calc(var(--crepe-base-font-size) * 1.424)) * 1.3 + 2 * var(--edit-block-gap, 4px));
+}
+
+.editor-instance .milkdown .milkdown-list-item-block > li.list-item:has(> .children > .content-dom > h4:is(:first-child, .outline-toggle + *)) {
+  --list-label-height: calc(var(--h4-size, calc(var(--crepe-base-font-size) * 1.266)) * 1.3 + 2 * var(--edit-block-gap, 4px));
+}
+
+.editor-instance .milkdown .milkdown-list-item-block > li.list-item:has(> .children > .content-dom > h5:is(:first-child, .outline-toggle + *)) {
+  --list-label-height: calc(var(--h5-size, calc(var(--crepe-base-font-size) * 1.125)) * 1.3 + 2 * var(--edit-block-gap, 4px));
+}
+
+.editor-instance .milkdown .milkdown-list-item-block > li.list-item:has(> .children > .content-dom > h6:is(:first-child, .outline-toggle + *)) {
+  --list-label-height: calc(var(--h6-size, calc(var(--crepe-base-font-size) * 1)) * 1.3 + 2 * var(--edit-block-gap, 4px));
+}
+
+/* One level = label gutter + `--list-label-gap`. Keep the gap, size the gutter. */
+.editor-instance .milkdown .milkdown-list-item-block > li > .label-wrapper,
+.editor-instance .milkdown .milkdown-list-item-block > li > .label-wrapper > .label {
+  width: calc(var(--list-indent) - var(--list-label-gap));
+  height: var(--list-label-height);
+}
+
+.editor-instance .milkdown .milkdown-list-item-block > li > .label-wrapper {
+  margin-top: var(--list-label-offset);
+}
+
+.editor-instance .milkdown .milkdown-list-item-block > li > .label-wrapper > .label.bullet {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: var(--crepe-color-on-background);
+}
+
+.editor-instance .milkdown .milkdown-list-item-block > li > .label-wrapper > .label.bullet > svg {
+  display: none;
+}
+
+/* Levels 1 and 4 (and the default): solid circle. */
+.editor-instance .milkdown .milkdown-list-item-block > li > .label-wrapper > .label.bullet::after {
+  content: '';
+  box-sizing: border-box;
+  width: var(--list-bullet-size);
+  height: var(--list-bullet-size);
+  border: 0;
+  border-radius: 50%;
+  background: var(--list-marker-color);
+}
+
+/* Levels 2 and 5: hollow circle. */
+.editor-instance .milkdown .milkdown-list-item-block .milkdown-list-item-block > li > .label-wrapper > .label.bullet::after,
+.editor-instance .milkdown .milkdown-list-item-block .milkdown-list-item-block .milkdown-list-item-block .milkdown-list-item-block .milkdown-list-item-block > li > .label-wrapper > .label.bullet::after {
+  width: var(--list-bullet-size);
+  height: var(--list-bullet-size);
+  border: var(--list-ring-border) solid var(--list-marker-color);
+  border-radius: 50%;
+  background: transparent;
+}
+
+/* Levels 3 and 6: solid square. */
+.editor-instance .milkdown .milkdown-list-item-block .milkdown-list-item-block .milkdown-list-item-block > li > .label-wrapper > .label.bullet::after,
+.editor-instance .milkdown .milkdown-list-item-block .milkdown-list-item-block .milkdown-list-item-block .milkdown-list-item-block .milkdown-list-item-block .milkdown-list-item-block > li > .label-wrapper > .label.bullet::after {
+  width: 0.38em;
+  height: 0.38em;
+  border: 0;
+  border-radius: 0.04em;
+  background: var(--list-marker-color);
+}
+
+/* Level 4 restarts the cycle: back to the solid circle (needs to outrank the level-2/3 rules). */
+.editor-instance .milkdown .milkdown-list-item-block .milkdown-list-item-block .milkdown-list-item-block .milkdown-list-item-block > li > .label-wrapper > .label.bullet::after {
+  width: var(--list-bullet-size);
+  height: var(--list-bullet-size);
+  border: 0;
+  border-radius: 50%;
+  background: var(--list-marker-color);
+}
+
+/* A done task reads as done (YAZ-1514, Obsidian's default look): the item's OWN first line is
+   struck and muted; nested children keep their own state. The fold chevron widget can sit before
+   that line, so the first block is not always `:first-child`; only textblocks are struck because
+   `line-through` inherits and a first-child code block or table could never cancel it. Visual
+   only — the file stays `* [x] …`, so a task checked in Obsidian, by the ☑ click, or by
+   `Mod-Enter` all look the same. */
+.editor-instance .milkdown .milkdown-list-item-block > li.list-item:has(> .label-wrapper > .label.checked) > .children > .content-dom > :is(p, h1, h2, h3, h4, h5, h6):is(:first-child, .outline-toggle + *) {
+  text-decoration: line-through;
+  color: var(--list-done-color);
+}

@@ -1,0 +1,93 @@
+/* notes-view: the Notes view itself (the docs-app look comes from the vendored CSS in ./docs + Crepe's theme). */
+
+.nv-pane {
+  position: absolute; inset: 0; overflow-y: auto; overflow-x: hidden; display: none; z-index: 2;
+  background: var(--bg); color: var(--ink);
+  scrollbar-width: thin; scrollbar-color: var(--faint) transparent;
+  /* the docs app's tokens, mapped onto the player's */
+  --border: var(--line); --fg-muted: var(--muted); --fg: var(--ink);
+  --text-size: calc(var(--fs, 17px) * 0.94);
+}
+.nv-pane.nv-show { display: block; }
+.nv-inner { max-width: calc(70ch + 110px); margin: 0 auto; padding: 52px 40px 50vh 48px; }
+
+/* the docs app's bullets need the editor-instance wrapper; the Crepe frame theme paints .milkdown */
+.nv-pane .milkdown { background: transparent; }
+.nv-pane .milkdown .ProseMirror { padding: 0; outline: none; }
+.nv-pane .nv-static .ProseMirror p { cursor: pointer; border-radius: 4px; }
+.nv-pane .nv-static .ProseMirror p:hover { background: color-mix(in srgb, var(--hl) 70%, transparent); }
+.nv-pane .nv-static ul { margin: 0; padding: 0; }
+.nv-pane .milkdown .ProseMirror ul { padding-left: 0; }
+
+/* bar */
+.nv-bar { font: 13px/1.6 system-ui, sans-serif; color: var(--ink); display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px;
+  padding: 0 0 10px; margin-bottom: 6px; border-bottom: 1px solid var(--line); }
+.nv-right { margin-left: auto; display: flex; gap: 6px; align-items: center; }
+.nv-file { flex-basis: 100%; font: 11.5px ui-monospace, monospace; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nv-muted { color: var(--muted); }
+.nv-run { color: #6d4bd8; }
+.nv-err { flex-basis: 100%; color: #d92d20; font: 13px/1.5 system-ui, sans-serif; padding: 4px 0; }
+.nv-btn { font: 12.5px system-ui, sans-serif; border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 999px; padding: 2px 10px; cursor: pointer; }
+.nv-btn:hover { border-color: var(--muted); }
+.nv-btn.nv-plain { border-color: transparent; background: transparent; color: var(--muted); padding: 2px 6px; }
+.nv-btn.nv-plain:hover { color: var(--ink); }
+
+/* tags: who wrote what */
+.nv-tag { display: inline-flex; align-items: center; gap: 6px; font: 600 11px/1.6 system-ui, sans-serif; letter-spacing: .02em; border-radius: 999px; padding: 0 8px; margin: 10px 0 2px; }
+.nv-tag-ai { color: #6d4bd8; border: 1px dashed #8c6cf0; }
+.nv-tag-mirror { color: var(--note-edge); border: 1px solid color-mix(in srgb, var(--note-edge) 50%, transparent); }
+.nv-tag-me { color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 50%, transparent); }
+.nv-dark .nv-tag-ai, .nv-dark .nv-run { color: #b9a4ff; }
+.nv-bar .nv-tag { margin: 0; }
+
+/* sections */
+.nv-sec { padding: 6px 0 10px; border-bottom: 1px solid var(--line); }
+.nv-sh { display: flex; align-items: baseline; gap: 8px; padding: 8px 8px 4px 0; margin-left: -26px; cursor: pointer; border-radius: 6px;
+  font: 600 calc(var(--text-size) * 1.05)/1.35 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; position: sticky; top: 0; z-index: 1; background: var(--bg); }
+.nv-sh:hover .nv-title { text-decoration: underline; text-decoration-color: var(--faint); }
+.nv-st { font: 12px ui-monospace, monospace; color: var(--accent); flex: none; }
+.nv-title { min-width: 0; }
+.nv-counts { font: 400 11.5px system-ui, sans-serif; color: var(--muted); white-space: nowrap; }
+.nv-regen { margin-left: auto; font: 11.5px system-ui, sans-serif; border: 1px solid var(--line); background: var(--panel); color: var(--muted); border-radius: 999px; padding: 0 8px; cursor: pointer; opacity: 0; flex: none; }
+.nv-sh:hover .nv-regen { opacity: 1; }
+.nv-sfold { width: 18px; height: 18px; padding: 0; border: 0; background: transparent; color: var(--muted); cursor: pointer; display: flex; align-items: center; justify-content: center; align-self: center; flex: none; }
+.nv-sfold svg { width: 14px; height: 14px; transition: transform .12s; }
+.nv-sfold[aria-expanded='false'] svg { transform: rotate(-90deg); }
+.nv-sec.nv-folded .nv-body { display: none; }
+.nv-sec.nv-cur > .nv-sh { box-shadow: inset 3px 0 0 var(--accent); padding-left: 0; }
+.nv-sec.nv-cur > .nv-sh .nv-title { color: var(--ink); }
+.nv-body { padding-left: 0; }
+
+/* the current bullet (follow-along) */
+.nv-pane .milkdown-list-item-block.nv-cur-b > li > .children > .content-dom > p { background: var(--hl); box-shadow: inset 3px 0 0 var(--hl-bar); }
+
+.nv-noai { font: 13px/1.6 system-ui, sans-serif; padding: 2px 0 4px; }
+.nv-tchip { font: 12px ui-monospace, monospace; color: var(--accent); background: transparent; border: 1px solid var(--line); border-radius: 6px; padding: 0 5px; cursor: pointer; vertical-align: top; margin-top: 2px; }
+.nv-pane .nv-slide .image-view:not([data-outline-folded-image='true']) { display: block; margin: 4px 0 6px; }
+.nv-pane .nv-slide .image-view img { max-height: 46vh; cursor: zoom-in; }
+.nv-pane .nv-slide .image-view[data-outline-folded-image='true'] img { cursor: pointer; }
+.nv-mt { font: 12px ui-monospace, monospace; color: var(--note-edge); }
+.nv-mq { color: var(--muted); font-style: italic; }
+.nv-resolved p { opacity: .6; }
+.nv-other p { color: var(--muted); }
+
+/* the Yasin editor */
+.nv-yasin { margin-top: 4px; }
+.nv-save { font: 400 11px system-ui, sans-serif; color: var(--muted); }
+.nv-save-edited { color: var(--accent); }
+.nv-save-error { color: #d92d20; }
+.nv-ed { min-height: 28px; border-radius: 6px; }
+.nv-ed-empty { font: calc(var(--text-size)) / 1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: var(--faint); padding: 4px 0 4px 34px; cursor: text; border-radius: 6px; }
+.nv-ed-empty:hover { color: var(--muted); background: color-mix(in srgb, var(--hl) 50%, transparent); }
+.nv-ed-loading { color: var(--faint); padding: 4px 34px; }
+.nv-pane .nv-ed .milkdown .ProseMirror { min-height: 28px; }
+.nv-pane .nv-ed:focus-within { background: color-mix(in srgb, var(--hl) 35%, transparent); }
+
+/* Crepe's floating UI (toolbar, link tooltip) above the pane */
+.nv-pane .milkdown-toolbar, .nv-pane .milkdown-link-preview, .nv-pane .milkdown-link-edit { z-index: 20; }
+
+/* the lightbox (vendored imageModal.css) in the app's UI font, not the transcript's serif */
+.image-modal-overlay { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+
+/* Labs rails (signal-strip, coverage-map …) stand along the column's right edge: keep the notes clear of them */
+.rwrap.labs-railed .nv-inner { padding-right: calc(40px + var(--labs-rails-w, 0px)); }

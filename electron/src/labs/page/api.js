@@ -281,6 +281,10 @@
           we.parentNode.insertBefore(node, we);
           return { el: node, remove: function () { node.remove(); } };
         },
+        // added by notes-view: Follow on / off, exactly like the Follow button / F (on = the transcript jumps back to
+        // the current word and "Back to now" hides; off = "Back to now" shows). A view over the transcript (the Notes
+        // view) turns it off when the user scrolls it, and follows the video while it is on.
+        setFollow: function (on) { F.setFollow(!!on); },
       },
       analysis: analysis,
       // added by mochi-candidates: the user's notes as the player shows them (read-only copies, sorted by time)
