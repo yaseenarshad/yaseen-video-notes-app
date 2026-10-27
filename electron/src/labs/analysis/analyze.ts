@@ -1,6 +1,8 @@
 import { readFileSync } from 'node:fs'
 import { decodeSidecar } from '../../core/transcript'
 import { readAnalysis, writeAnalysis, writeCache } from '../store'
+import { askAI, engineConfig, engineLabel } from '../ai/engine'
+import { ANALYSIS_SCHEMA, dropNulls } from '../ai/schemas'
 import { runClaude, type ClaudeOptions } from './claude'
 import { buildPrompt, chunks, retryPrompt, SYSTEM_PROMPT } from './prompt'
 import type { LabsAnalysis } from './schema'
@@ -8,7 +10,8 @@ import { finalize, InvalidAnswer, matchesTranscript, parseAnswer, validateChunk,
 import { wordsOf, type Words } from './words'
 
 /**
- * The analysis engine: transcript (sidecar) → prompt(s) → `claude -p` → validated, repaired, merged →
+ * The analysis engine: transcript (sidecar) → prompt(s) → the Labs AI engine (ai/engine.ts: Codex by default, or
+ * `claude -p`; Codex gets the answer's JSON schema) → validated, repaired, merged →
  * `labs-cache/<videoId>/labs-analysis.json` in Labs' userData. Used by the CLI (`analyze`) and the Labs player's
  * "Analyze this video" button. An answer that is not usable (not JSON / wrong shape / spans that point nowhere)
  * is asked for once more with the error message; item-level problems are repaired or dropped and noted in
@@ -57,7 +60,12 @@ export async function analyze(sidecarPath: string, opts: AnalyzeOptions): Promis
   const repairs: string[] = []
   const parts: ChunkResult[] = []
   let modelMs = 0
-  const ask = opts.ask ?? (async (prompt: string, o: ClaudeOptions) => runClaude(prompt, o))
+  // the Labs AI engine (a --claude-bin from the CLI still means that exact claude binary)
+  const ask = opts.ask ?? (async (prompt: string, o: ClaudeOptions) => {
+    if (o.bin) return runClaude(prompt, o)
+    const r = await askAI(prompt, { system: o.system, schema: ANALYSIS_SCHEMA, timeoutMs: o.timeoutMs, log: o.log })
+    return { text: dropNulls(r.text), ms: r.ms }
+  })
   const claudeOpts: ClaudeOptions = { bin: opts.claudeBin, model: opts.model, system: SYSTEM_PROMPT, timeoutMs: opts.timeoutMs, log }
   for (let i = 0; i < cs.length; i++) {
     const c = cs[i]
@@ -71,7 +79,7 @@ export async function analyze(sidecarPath: string, opts: AnalyzeOptions): Promis
       text = readFileSync(opts.responses[i], 'utf8')
       log(`${tag}using the saved answer ${opts.responses[i]}`)
     } else {
-      log(`${tag}asking claude (P${c.first}–P${c.last}, ${c.words} words, ~${Math.round(prompt.length / 4 / 1000)}k tokens)…`)
+      log(`${tag}asking ${opts.claudeBin ? 'claude' : engineLabel()} (P${c.first}–P${c.last}, ${c.words} words, ~${Math.round(prompt.length / 4 / 1000)}k tokens)…`)
       const r = await ask(prompt, claudeOpts)
       modelMs += r.ms
       text = r.text
@@ -90,7 +98,7 @@ export async function analyze(sidecarPath: string, opts: AnalyzeOptions): Promis
     }
     repairs.push(...chunkRepairs.map((x) => tag + x))
   }
-  const source = opts.responses ? 'saved response' : `claude -p${opts.model ? ` --model ${opts.model}` : ''}`
+  const source = opts.responses ? 'saved response' : opts.ask ? 'test' : opts.claudeBin ? `claude -p${opts.model ? ` --model ${opts.model}` : ''}` : engineConfig().engine === 'codex' ? `codex exec -m ${engineConfig().model}` : `claude -p${opts.model ? ` --model ${opts.model}` : ''}`
   const analysis = finalize(w, parts, { createdAt: new Date().toISOString(), source, elapsedMs: modelMs, repairs })
   const file = writeAnalysis(opts.userData, analysis)
   const ms = Date.now() - t0

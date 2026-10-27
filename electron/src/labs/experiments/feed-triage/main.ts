@@ -2,8 +2,8 @@
 //   1. the captions — the app's own caption fetch (yt-dlp, one track, under the yt-dlp lock) — into Labs' own cache:
 //      labs-cache/<id>/feed-preview.follow-along.json (a Library video already in a folder is read from there instead);
 //   2. at once: the chapter titles + each chapter's first sentence, verbatim (no AI);
-//   3. then the Labs analysis (`claude -p`, same engine and cache as 🧪 Analyze); when it works, the pull quotes
-//      (verbatim, AI-picked). When claude is unavailable the preview stays on step 2 and says why.
+//   3. then the Labs analysis (the Labs AI engine — Codex by default — same cache as 🧪 Analyze); when it works,
+//      the pull quotes (verbatim, AI-picked). When the engine is unavailable the preview stays on step 2 and says why.
 // Never automatic, never the vault. One preview runs at a time.
 import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
@@ -13,6 +13,7 @@ import { fetchCaptions, findYTDLP, format, pickVTT, YTDLP_MISSING } from '../../
 import { encodeSidecar, parseInfoJSON, SIDECAR_FILE } from '../../../core/transcript'
 import { whileDownloading } from '../../../core/ytdlpUpdate'
 import { analyze } from '../../analysis/analyze'
+import { engineLabel } from '../../ai/engine'
 import { defineMainHooks, type LabsMainContext } from '../../hooks'
 import { cacheDir, writeCache } from '../../store'
 import { digestOfSidecar, type Digest } from '../triage-cards/digest'
@@ -73,7 +74,7 @@ function start(ctx: LabsMainContext, id: string, folder: unknown, withAI: boolea
       if (j.digest.analyzed || !withAI) { j.state = 'done'; return }
       if (claudeDown && Date.now() - claudeDown.at < 10 * 60_000) { j.aiError = claudeDown.error; j.state = 'done'; return }
       j.state = 'analyzing'
-      set('Asking claude -p for pull quotes (a minute or two)…')
+      set(`Asking ${engineLabel()} for pull quotes (a minute or two)…`)
       try {
         await analyze(sidecar, { userData: ctx.userData, log: set })
         claudeDown = null

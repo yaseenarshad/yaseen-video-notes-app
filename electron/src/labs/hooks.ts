@@ -28,6 +28,8 @@ export interface LabsRawResponse { status: number; type: string; body: string | 
 
 export interface LabsMainHooks {
   route?: (req: LabsRequest, ctx: LabsVideoContext) => unknown | Promise<unknown>
+  /** A video was opened in Labs, or just added to labs-library ("Add to Library") — e.g. to start background work. */
+  onVideo?: (ctx: LabsVideoContext, why: 'opened' | 'added') => void
   ipc?: Record<string, (ctx: LabsMainContext, ...args: unknown[]) => unknown | Promise<unknown>>
 }
 

@@ -34,6 +34,8 @@ interface Data {
   feedDir?: string
   /** 🧪 Labs flavor: the experiments' on/off switches (id → on); unset = the experiment's defaultOn. */
   labsEnabled?: Record<string, boolean>
+  /** 🧪 Labs flavor: the AI engine (codex | claude), its model and effort, and "write AI notes automatically". */
+  labsAi?: { engine?: 'codex' | 'claude'; model?: string; effort?: 'low' | 'medium' | 'high'; autoWrite?: boolean }
 }
 
 const NUMBER_PREFS: Record<string, [number, number]> = {
@@ -130,6 +132,13 @@ class SettingsStore {
   /** 🧪 Labs: the experiments' switches (id → on; unset = the experiment's default). */
   get labsEnabled(): Record<string, boolean> { return { ...(this.d.labsEnabled ?? {}) } }
   setLabsEnabled(id: string, on: boolean): void { this.d.labsEnabled = { ...(this.d.labsEnabled ?? {}), [id]: on }; this.save() }
+
+  /** 🧪 Labs: the AI engine settings (defaults: Codex, gpt-6.1-sol, medium, write automatically). */
+  get labsAi(): { engine: 'codex' | 'claude'; model: string; effort: 'low' | 'medium' | 'high'; autoWrite: boolean } {
+    const a = this.d.labsAi ?? {}
+    return { engine: a.engine === 'claude' ? 'claude' : 'codex', model: a.model?.trim() || 'gpt-6.1-sol', effort: a.effort ?? 'medium', autoWrite: a.autoWrite ?? true }
+  }
+  setLabsAi(v: NonNullable<Data['labsAi']>): void { this.d.labsAi = { ...(this.d.labsAi ?? {}), ...v }; this.save() }
 
   get bounds(): Data['bounds'] { return this.d.bounds }
   set bounds(v: Data['bounds']) { this.d.bounds = v; this.save() }

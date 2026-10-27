@@ -56,6 +56,49 @@ export async function setExperiment(id: string, on: boolean): Promise<void> {
   listeners.forEach((f) => f(i))
 }
 
+export async function setAi(v: Partial<LabsInfo['ai']>): Promise<void> {
+  const i = await window.fa.labsSetAi(v)
+  current = i
+  listeners.forEach((f) => f(i))
+}
+
+/** The AI engine every Labs AI feature uses: Codex (the ChatGPT subscription, default) or Claude; model; auto-write. */
+function AiSettings({ labs }: { labs: LabsInfo }) {
+  const ai = labs.ai
+  const [model, setModel] = useState(ai.model)
+  useEffect(() => setModel(ai.model), [ai.model])
+  return (
+    <div className="labs__card labs__card--on labs__ai">
+      <div className="labs__row"><div className="labs__title">🤖 AI engine<span className="labs__area">{ai.label}{ai.available ? '' : ' · not found'}</span></div></div>
+      <div className="labs__desc">
+        Every Labs AI feature (AI notes, the analysis, Ask the video, pull quotes) uses this engine. The checks and validators are the same for both.
+      </div>
+      <div className="labs__airow">
+        <label><input type="radio" name="labs-engine" checked={ai.engine === 'codex'} onChange={() => void setAi({ engine: 'codex' })} /> Codex (ChatGPT)</label>
+        <label><input type="radio" name="labs-engine" checked={ai.engine === 'claude'} onChange={() => void setAi({ engine: 'claude' })} /> Claude</label>
+        {ai.engine === 'codex' && (
+          <label title="The Codex model slug (`codex debug models` lists them)">Model{' '}
+            <input className="labs__model" value={model} onChange={(e) => setModel(e.target.value)} onBlur={() => { if (model.trim() && model !== ai.model) void setAi({ model }) }}
+              onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }} spellCheck={false} />
+          </label>
+        )}
+        {ai.engine === 'codex' && (
+          <label>Effort{' '}
+            <select value={ai.effort} onChange={(e) => void setAi({ effort: e.target.value as LabsInfo['ai']['effort'] })}>
+              <option value="low">low</option><option value="medium">medium</option><option value="high">high</option>
+            </select>
+          </label>
+        )}
+      </div>
+      <label className="labs__airow labs__auto">
+        <input type="checkbox" checked={ai.autoWrite} onChange={(e) => void setAi({ autoWrite: e.target.checked })} /> Write AI notes automatically when I open a video
+        <span className="labs__hint">(and the analysis; only parts with no notes; never slides)</span>
+      </label>
+      {ai.paused && <div className="labs__warn">Paused: {ai.paused}</div>}
+    </div>
+  )
+}
+
 /** One experiment's slot content; a crash only hides that experiment. */
 class Guard extends Component<{ id: string; children: ReactNode }, { failed: boolean }> {
   state = { failed: false }
@@ -89,6 +132,7 @@ export function LabsPanel() {
         <p className="labs__data">Labs data: <button className="labs__link" onClick={() => window.fa.showInFinder(labs.userData)}>{labs.userData}</button></p>
       </div>
       <div className="labs__list">
+        {labs.ai && <AiSettings labs={labs} />}
         {labs.experiments.length === 0 && <div className="labs__empty">No experiments yet.</div>}
         {labs.experiments.map((e) => (
           <div key={e.id} className={'labs__card' + (e.enabled ? ' labs__card--on' : '')}>

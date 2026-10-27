@@ -11,6 +11,7 @@ import { isLabs, writable } from '../core/flavor'
 import { parseYouTubeID } from '../core/transcript'
 import type { LauncherInfo, MenuSpec, ShellCommand, ShellState, Source, TabInfo, WorkEvent } from '../shared/api'
 import { DebugLog } from './debugLog'
+import { labsVideoAdded } from './labs'   // added by notes-view
 import { PlayerSession } from './session'
 import { Settings } from './settings'
 
@@ -278,7 +279,11 @@ export class MainWindow {
     const parent = Settings.forcedOutputParent ?? (destination.startsWith('~/') ? homedir() + destination.slice(1) : destination)
     Settings.outputParent = parent
     if (!Settings.pinnedFolders.includes(parent) && existsSync(parent)) Settings.pinnedFolders = [...Settings.pinnedFolders, parent]
-    await this.runWork(tabId, (progress) => make(l, parent, { allowFormat: false, progress }))
+    await this.runWork(tabId, async (progress) => {
+      const t = await make(l, parent, { allowFormat: false, progress })
+      if (isLabs()) labsVideoAdded(t)   // added by notes-view: Labs starts its automatic AI work (notes, analysis) at once
+      return t
+    })
     if (!Settings.pinnedFolders.includes(parent) && existsSync(parent)) Settings.pinnedFolders = [...Settings.pinnedFolders, parent]
   }
 

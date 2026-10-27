@@ -73,7 +73,7 @@ export function namesIn(words: string[]): string[] {
   const out: string[] = []
   let run: string[] = []
   const flush = () => {
-    const r = run.filter((w) => !NOT_NAMES.has(w))
+    const r = run.filter((w) => !NOT_NAMES.has(w) && !NOT_NAMES.has(w.replace(/['’](ve|re|ll|d|s|m|t)$/i, '')))   // "They've" is "They"
     if (r.length >= 2) out.push(r.join(' '))
     else if (r.length === 1 && run.length === 1 && !runStartsSentence) out.push(r[0])
     run = []

@@ -3,7 +3,10 @@ import { mkdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { isLabs, Flavor } from '../../core/flavor'
+import { aiPaused, autoWriteOn, engineAvailable, engineLabel, explain, pauseAI, resumeAI, setAutoWrite, setEngineConfig, AIError } from '../../labs/ai/engine'
 import { analyze, loadWords } from '../../labs/analysis/analyze'
+import { decodeSidecar } from '../../core/transcript'
+import { readFileSync } from 'node:fs'
 import { matchesTranscript } from '../../labs/analysis/validate'
 import type { LabsMainContext, LabsMainHooks, LabsRawResponse, LabsVideoContext } from '../../labs/hooks'
 import { EXPERIMENTS, experiment } from '../../labs/registry'
@@ -42,6 +45,7 @@ const mainContext = (): LabsMainContext => ({ userData: userData(), log: (l) => 
 
 /** At start (Labs only): Labs' library folder, and the default sidebar = learning-log + labs-library. */
 export function setUpLabsFolders(): void {
+  applyAiSettings()
   mkdirSync(libraryDir(), { recursive: true })
   Settings.useLabsFolders(libraryDir(), [LEARNING_LOG, libraryDir()])
 }
@@ -54,7 +58,19 @@ export function enabledIds(): string[] {
 export function labsInfo(): LabsInfo | null {
   if (!isLabs()) return null
   const on = new Set(enabledIds())
-  return { readOnly: Flavor.readOnlyVault, userData: userData(), library: libraryDir(), experiments: EXPERIMENTS.map((e) => ({ ...e, enabled: on.has(e.id) })) }
+  const ai = Settings.labsAi
+  const avail = engineAvailable({ engine: ai.engine, model: ai.model, effort: ai.effort })
+  return {
+    readOnly: Flavor.readOnlyVault, userData: userData(), library: libraryDir(), experiments: EXPERIMENTS.map((e) => ({ ...e, enabled: on.has(e.id) })),
+    ai: { ...ai, label: avail.label, available: avail.ok, paused: aiPaused()?.reason ?? null },
+  }
+}
+
+/** Labs' AI settings → the engine (ai/engine.ts) and the auto-write policy. */
+export function applyAiSettings(): void {
+  const ai = Settings.labsAi
+  setEngineConfig({ engine: ai.engine, model: ai.model, effort: ai.effort })
+  setAutoWrite(ai.autoWrite)
 }
 
 // ---------- the player page ----------
@@ -124,20 +140,23 @@ let queue: Promise<unknown> = Promise.resolve()
 
 const job = (videoId: string): Job => jobs.get(videoId) ?? { state: 'idle', lines: [] }
 
-export function startAnalysis(ctx: LabsVideoContext, force: boolean): Job {
+export function startAnalysis(ctx: LabsVideoContext, force: boolean, auto = false): Job {
   const cur = jobs.get(ctx.videoId)
   if (cur?.state === 'running') return cur
+  if (!auto) resumeAI()   // a run by hand lifts a usage-limit pause
   const j: Job = { state: 'running', startedAt: new Date().toISOString(), lines: [] }
   jobs.set(ctx.videoId, j)
   const log = (l: string) => { j.lines = [...j.lines, l].slice(-40); ctx.log(`analyze ${ctx.videoId}: ${l}`) }
   queue = queue.then(async () => {
     try {
       await ensureSignals(ctx.userData, ctx.videoId, { log }).catch(() => {})
+      if (auto && (!autoWriteOn() || aiPaused())) { j.state = 'idle'; log('automatic analysis skipped (auto off or paused)'); return }
       await analyze(ctx.sidecar, { userData: ctx.userData, force, log })
       j.state = 'done'
     } catch (e) {
       j.state = 'failed'
-      j.error = e instanceof Error ? e.message : String(e)
+      if (e instanceof AIError && e.kind === 'usage_limit') pauseAI(explain(e))
+      j.error = explain(e)
       log(`failed: ${j.error}`)
     } finally {
       j.finishedAt = new Date().toISOString()
@@ -146,12 +165,39 @@ export function startAnalysis(ctx: LabsVideoContext, force: boolean): Job {
   return j
 }
 
-/** A video opened in Labs: fetch its heatmap + SponsorBlock in the background when not cached yet (cheap, once). */
-export function onLabsSessionOpen(ctx: LabsVideoContext): void {
+/**
+ * A video opened in Labs: fetch its heatmap + SponsorBlock in the background when not cached yet (cheap, once);
+ * with "Write AI notes automatically" on: the analysis when it has none, and the experiments' `onVideo` hooks
+ * (notes-view writes the missing AI notes part by part). Slides are never extracted automatically (a download).
+ */
+export function onLabsSessionOpen(ctx: LabsVideoContext, why: 'opened' | 'added' = 'opened'): void {
+  autoAI(ctx, why)
   if (readSignals(ctx.userData, ctx.videoId)) return
   setTimeout(() => {
     queue = queue.then(() => ensureSignals(ctx.userData, ctx.videoId, { log: ctx.log }).catch((e) => ctx.log(`signals: ${e}`)))
   }, 4000)
+}
+
+function autoAI(ctx: LabsVideoContext, why: 'opened' | 'added'): void {
+  for (const id of enabledIds()) {
+    try { HOOKS[id]?.onVideo?.(ctx, why) } catch (e) { ctx.log(`${id} onVideo: ${e}`) }
+  }
+  if (!autoWriteOn() || aiPaused() || !engineAvailable().ok) return
+  let analyzed = false
+  try { const a = readAnalysis(ctx.userData, ctx.videoId); analyzed = !!a && matchesTranscript(a, loadWords(ctx.sidecar)) } catch { /* unreadable: try */ }
+  if (!analyzed && job(ctx.videoId).state !== 'running') {
+    ctx.log(`analyze ${ctx.videoId}: automatic (${engineLabel()})`)
+    startAnalysis(ctx, false, true)
+  }
+}
+
+/** Labs "Add to Library": a new folder in labs-library → the same automatic AI work as opening it. */
+export function labsVideoAdded(t: { folder: string; markdown: string; sidecar: string }): void {
+  if (!isLabs()) return
+  try {
+    const sc = decodeSidecar(readFileSync(t.sidecar, 'utf8'))
+    onLabsSessionOpen(videoContext({ videoId: sc.id, title: sc.title, folder: t.folder, markdown: t.markdown, sidecar: t.sidecar }), 'added')
+  } catch (e) { DebugLog.log(`labs: video added: ${e}`) }
 }
 
 export function videoContext(v: Omit<LabsVideoContext, 'userData' | 'log'>): LabsVideoContext {
@@ -166,6 +212,20 @@ export function registerLabsIPC(onChange: () => void): void {
     if (!isLabs() || !experiment(id)) return labsInfo()
     Settings.setLabsEnabled(id, !!on)
     DebugLog.log(`labs: ${id} ${on ? 'on' : 'off'}`)
+    onChange()
+    return labsInfo()
+  })
+  ipcMain.handle('labs:setAi', (_e, v: Partial<{ engine: 'codex' | 'claude'; model: string; effort: 'low' | 'medium' | 'high'; autoWrite: boolean }>) => {
+    if (!isLabs()) return labsInfo()
+    const clean: Record<string, unknown> = {}
+    if (v.engine === 'codex' || v.engine === 'claude') clean.engine = v.engine
+    if (typeof v.model === 'string' && /^[\w.:-]{1,60}$/.test(v.model.trim())) clean.model = v.model.trim()
+    if (v.effort === 'low' || v.effort === 'medium' || v.effort === 'high') clean.effort = v.effort
+    if (typeof v.autoWrite === 'boolean') clean.autoWrite = v.autoWrite
+    Settings.setLabsAi(clean)
+    applyAiSettings()
+    if (clean.engine || clean.model) resumeAI()   // another engine / model: try again
+    DebugLog.log(`labs: AI ${JSON.stringify(Settings.labsAi)}`)
     onChange()
     return labsInfo()
   })

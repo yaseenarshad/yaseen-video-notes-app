@@ -58,8 +58,11 @@ interface DSection {
   /** The previous notes of this part (`<slug>.notes.v1.md`); null when there is no previous file. */
   v1: string | null
 }
-interface Job { state: 'idle' | 'running' | 'done' | 'failed'; current: number | null; done: number; total: number; error: string | null; loginNeeded: boolean; lines: string[]; pending: number[] }
-interface Data { file: string; exists: boolean; sections: DSection[]; claude: boolean; job: Job; slides: number }
+interface Job {
+  state: 'idle' | 'queued' | 'running' | 'done' | 'failed' | 'stopped'; current: number | null; done: number; total: number; error: string | null
+  loginNeeded: boolean; usageLimit: boolean; auto: boolean; engine: string; paused: string | null; lines: string[]; pending: number[]
+}
+interface Data { file: string; exists: boolean; sections: DSection[]; ai: { ok: boolean; label: string; reason: string | null }; job: Job; slides: number }
 
 const BASE = '/labs/x/notes-view/'
 const getJSON = async <T>(path: string, init?: RequestInit): Promise<T> => {
@@ -290,14 +293,16 @@ export function mount(L: Labs, host: HTMLElement) {
     const tag = el('span', 'nv-tag nv-tag-ai', '🤖 AI notes')
     tag.title = 'Notes written by Claude from the transcript, in your notes format (notes-format.md). Your own words are highlighted.'
     bar.append(tag, el('span', 'nv-muted', ` ${withAi} of ${data.sections.length} parts`))
-    if (job.state === 'running') bar.append(el('span', 'nv-run', ` · writing ${job.done + 1} of ${job.total}…`))
+    if (job.state === 'running') bar.append(el('span', 'nv-run', ` · ${job.auto ? 'writing automatically' : 'writing'} ${Math.min(job.done + 1, job.total)} of ${job.total} · ${job.engine}…`))
+    else if (job.state === 'queued') bar.append(el('span', 'nv-run', ` · waiting for another video's notes · ${job.engine}`))
     else if (withAi < data.sections.length) {
       const b = el('button', 'nv-btn', 'Write missing')
       b.title = 'Write AI notes (claude -p) for every part that has none and that you have not written in.'
       b.onclick = () => generate({ all: true })
       bar.append(b)
     }
-    if (job.state === 'failed' && job.error) bar.append(el('div', 'nv-err', job.loginNeeded ? 'AI notes need `claude` login — run `claude` in a terminal and /login, then try again.' : `AI notes failed: ${job.error}`))
+    if (job.state === 'failed' && job.error) bar.append(el('div', 'nv-err', `AI notes: ${job.error}`))
+    else if (job.paused) bar.append(el('div', 'nv-err', job.paused))
     if (data.sections.some((s) => s.v1 !== null)) {
       const cmp = el('button', `nv-btn${comparing ? ' nv-on' : ''}`, comparing ? '🕘 Showing previous notes · back to new' : '🕘 Compare with previous notes')
       cmp.title = 'Switch every part between the current notes and the previous version (<slug>.notes.v1.md)'
@@ -659,8 +664,16 @@ export function mount(L: Labs, host: HTMLElement) {
     await ready
     data = await getJSON<Data>('data')
     render()
-    if (data.job.state === 'running') poll()
+    if (data.job.state === 'running' || data.job.state === 'queued') poll()
   }
+  // an automatic job may start any time (opening the video): while Notes is shown, look every 3 s
+  window.setInterval(async () => {
+    if (!visible || !data) return
+    try {
+      const j = await getJSON<Job>('generate/status')
+      if ((j.state === 'running' || j.state === 'queued') && data.job.state !== 'running' && data.job.state !== 'queued') { data.job = j; renderBar(); poll() }
+    } catch { /* next time */ }
+  }, 3000)
 
   // ---------- AI notes ----------
   let polling: number | undefined
@@ -670,10 +683,10 @@ export function mount(L: Labs, host: HTMLElement) {
       try {
         const next = await getJSON<Data>('data')
         refresh(next)
-        if (next.job.state !== 'running') {
+        if (next.job.state !== 'running' && next.job.state !== 'queued') {
           clearInterval(polling)
-          if (next.job.state === 'failed') L.ui.toast(next.job.loginNeeded ? 'AI notes need `claude` login — run `claude` in a terminal and /login' : `AI notes failed: ${next.job.error}`, 7000)
-          else if (next.job.state === 'done') L.ui.toast('🤖 AI notes written', 2500)
+          if (next.job.state === 'failed' && !next.job.usageLimit) L.ui.toast(`AI notes: ${next.job.error}`, 7000)   // a usage limit: player.js says it once
+          else if (next.job.state === 'done' && !next.job.auto) L.ui.toast('🤖 AI notes written', 2500)
         }
       } catch { /* try again next time */ }
     }, 1500)

@@ -83,6 +83,24 @@
   }
   loadHints();
 
+  // AI notes written in the background (automatically on open, or Write missing): a small chip under the toggle,
+  // "🤖 Writing notes 4/12 · Codex · gpt-6.1-sol"; a usage limit is said once (the automatic jobs pause).
+  L.ui.css('notes-view-job', '.nv-jobchip { position: absolute; top: 46px; left: 16px; z-index: 5; font: 12px system-ui, sans-serif; color: var(--muted); background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; display: none; } .nv-jobchip.on { display: block; } .find.show ~ .nv-jobchip { display: none; }');
+  var chip = el('div', { class: 'nv-jobchip' }, ['']);
+  wrap.appendChild(chip);
+  var saidPause = false, lastDone = -1;
+  function jobTick() {
+    fetch('/labs/x/notes-view/generate/status', { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (j) {
+      var on = j.state === 'running' || j.state === 'queued';
+      chip.classList.toggle('on', on);
+      if (on) chip.textContent = j.state === 'queued' ? '🤖 Notes waiting · ' + j.engine : '🤖 Writing notes ' + Math.min(j.done + 1, j.total) + '/' + j.total + ' · ' + j.engine;
+      if (on && j.done !== lastDone) { lastDone = j.done; loadHints(); }
+      if ((j.usageLimit || j.paused) && !saidPause) { saidPause = true; L.ui.toast(j.paused || j.error || 'AI usage limit reached — automatic AI notes are paused', 9000); }
+    }).catch(function () { /* experiment off */ });
+  }
+  jobTick();
+  setInterval(jobTick, 4000);
+
   bT.onclick = function () { setMode('transcript', true); };
   bN.onclick = function () { setMode('notes', true); };
   L.ui.addKey('shift+t', function () { setMode(mode === 'notes' ? 'transcript' : 'notes', true); }, 'Transcript / Notes (Labs)');

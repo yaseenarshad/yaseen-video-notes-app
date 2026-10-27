@@ -239,7 +239,8 @@ In the app: **🧪 Analyze** under the video (or Labs → Analyze This Video); t
    return ONE JSON object with spans `[startPara, startWord, endPara, endWord]` plus `first` / `last` anchor words.
    A 2 h podcast (~25k words ≈ 35k tokens) is **one call**; above 45k words the transcript is split at chapter starts
    (else paragraphs) into chunks, asked one after another and merged.
-2. **The call** (`claude.ts`): `~/.local/bin/claude -p --output-format json --tools "" --safe-mode
+2. **The call** — through Labs' ONE AI engine (`src/labs/ai/engine.ts`, see "The AI engine" below): Codex by default
+   (with the answer's strict JSON schema, `ai/schemas.ts`), or Claude: `~/.local/bin/claude -p --output-format json --tools "" --safe-mode
    --no-session-persistence --disable-slash-commands --system-prompt <extractive analyst>` with the prompt on stdin;
    default model (`--model` to choose); env without a parent Claude Code session's variables; 20 min timeout.
    `is_error` (e.g. "Not logged in") → a clear error ("run `claude` in a terminal and /login").
@@ -474,12 +475,45 @@ LABS.transcript.addInlineCard(p, w, node) → { el, remove() } | null
 |---|---|---|
 | `slides` | slides follow along / deck reader | ← → (J K Enter Esc in the deck) step slides; the video keeps playing (follow along: small in a corner; the deck: hidden) |
 
+## The AI engine (Codex by default)
+
+Every Labs AI feature — the analysis (and so feed-triage's pull quotes), notes-view's AI notes, ask-the-video — asks
+through `src/labs/ai/engine.ts` `askAI(prompt, { system, schema, effort, timeoutMs, log })` → `{ text, ms, engine, model,
+usage }`. Validators and checks stay with the callers, whatever the engine.
+
+- **Codex** (default: the user's ChatGPT subscription, model `gpt-6.1-sol`, effort `medium`; ask-the-video `low`):
+  `codex exec -m <model> -s read-only -C <tmp> --skip-git-repo-check --ephemeral --json -c model_reasoning_effort="<e>"
+  -o <tmp>/last.txt [--output-schema <tmp>/schema.json] -` with the prompt (system text first) on stdin. The answer is
+  `last.txt`; `turn.completed` in the JSONL events gives the token usage; `turn.failed` / `error` events give the failure;
+  stderr is noise when the exit code is 0. `-m` and `-s read-only` always; `~/.codex/config.toml` is never touched.
+  Strict schemas (`ai/schemas.ts`: closed objects, every key required, optional = nullable) for the analysis and
+  ask-the-video; `dropNulls` gives the validators the same shape as before. Notes are bullet text (no schema).
+- **Claude**: `claude -p` exactly as before (`analysis/claude.ts`).
+- Errors (`AIError.kind`) with clear messages: `usage_limit` (all automatic jobs pause until a run by hand; said once),
+  `login` ("run `codex login`" / "`claude` → /login"), `model` ("not supported — pick another one in 🧪 Labs"),
+  `missing`, `timeout`.
+- **Settings** (🧪 Labs panel, "🤖 AI engine" card; `settings.json` `labsAi`): Codex | Claude, the model slug, the
+  effort, and **"Write AI notes automatically when I open a video"** (default on). `VIDEO_NOTES_AI_ENGINE` / `_MODEL` /
+  `_EFFORT` / `VIDEO_NOTES_CODEX` override for the CLI, tools and tests; `setAskStub` replaces the engine in unit tests.
+- **Automatic AI work** (`main/labs/index.ts` `onLabsSessionOpen` / `labsVideoAdded`, and the experiments' new
+  `onVideo(ctx, 'opened' | 'added')` hook): opening a video in Labs, or adding one to labs-library, starts the analysis
+  when it has none and notes-view's missing AI notes (only parts with no AI notes that the user has not touched —
+  checked again before each part; `#yaseen` / edited parts are never overwritten). One notes job per video, parts one
+  after another, at most 2 videos at a time; never duplicated; the next open resumes what is missing. Slides are never
+  extracted automatically (a download). A chip under the Transcript | Notes toggle: "🤖 Writing notes 4/12 · Codex ·
+  gpt-6.1-sol". Turning the setting off stops automatic jobs (a part being written finishes).
+
+Shared-file edits (each commented): `main/labs/index.ts` (engine settings, auto AI, `labs:setAi`), `main/settings.ts`
+(`labsAi`), `main/window.ts` (`labsVideoAdded` after "Add to Library"), `shared/api.ts` + `preload/shell.ts`
+(`labsSetAi`, `LabsInfo.ai`), `renderer/labs.tsx` + `styles.css` (the engine card), `labs/hooks.ts` (`onVideo`).
+
 ## Additions (notes-view)
 
 The `notes-view` experiment (player, on by default; `experiments/notes-view/`, details in its `GUIDE.md`): a
 **Transcript | Notes** switch at the top left of the transcript column (⇧T). Notes = the video part by part (chapters,
 else ~5-minute windows on paragraph boundaries). Each part is ONE editor (the docs app's Milkdown Crepe + its vendored
-add-ons) holding the 🤖 AI notes in the user's notes format (`claude -p`, one part at a time, notes-format.md read fresh
+add-ons) holding the 🤖 AI notes in the user's notes format (the Labs AI engine — Codex by default — one part at a time,
+written automatically when a video is opened; notes-format.md read fresh
 each run), the part's slides (from `slides.json`) and the user's own words — a bullet the user writes or changes gets a
 "Yaseen" chip (the tag `#yaseen` first in its text; legacy `==…==` highlighting is read and migrated); AI bullets can be reworded, merged, split or deleted (✎ + "Restore original"
 from the `.notes-ai.json` sidecar). Every AI bullet keeps its source paragraph as a node attribute (`<!-- p:N -->`),

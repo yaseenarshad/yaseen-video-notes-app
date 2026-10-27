@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { dirname, extname } from 'node:path'
 import { atomicWrite } from '../../../core/atomic'
 import { loadWords } from '../../analysis/analyze'
-import { ClaudeError, findClaude, runClaude } from '../../analysis/claude'
+import { AIError, aiPaused, askAI, autoWriteOn, engineAvailable, engineLabel, explain, onPolicyChange, pauseAI, resumeAI } from '../../ai/engine'
 import type { Words } from '../../analysis/words'
 import { defineMainHooks, type LabsVideoContext } from '../../hooks'
 import { cacheDir, writeCache } from '../../store'
@@ -25,15 +25,60 @@ import VIEW from './view/index.ts?iife'
  *                                    changed since `sig` (the posted markdown is kept in labs-cache/<id>/notes-conflict-*.md)
  * - POST image {path, data}         a pasted / dropped image → `notes-images/<name>` next to the notes file (409 = taken)
  * - GET  file/<rel>                 an image beside the notes file (notes-images/…, slides/…)
- * - POST generate?t=<s> | ?all=1    AI notes (`claude -p`, one part at a time; all = the parts with no AI notes that
- *                                    Yasin has not touched); GET generate/status
+ * - POST generate?t=<s> | ?all=1    AI notes (the Labs AI engine — Codex by default — one part at a time; all = the
+ *                                    parts with no AI notes Yaseen has not touched); GET generate/status
+ * - onVideo                          opening a video in Labs (or adding it): the missing parts, automatically
  * Everything is written in Labs' userData (`labs-cache/<id>/`), never the vault.
  */
 
-interface Job { state: 'idle' | 'running' | 'done' | 'failed'; current: number | null; done: number; total: number; error: string | null; loginNeeded: boolean; lines: string[]; queue: number[] }
+/**
+ * One AI-notes job per video (`queued` → `running` → done / failed / stopped), parts one after another; at most
+ * MAX_VIDEOS videos write at the same time (a small global queue). An automatic job (opening a video with "Write AI
+ * notes automatically" on) only fills parts with no AI notes that Yaseen has not touched — checked again right before
+ * each part — and stops when the setting goes off or a usage limit pauses the engine. Restarting the app resumes:
+ * the next open finds the parts still missing.
+ */
+interface Job {
+  state: 'idle' | 'queued' | 'running' | 'done' | 'failed' | 'stopped'
+  current: number | null; done: number; total: number; error: string | null; loginNeeded: boolean; usageLimit: boolean
+  auto: boolean; lines: string[]; queue: number[]
+  /** Per finished part: its start (t) and how long the model took (ms). */
+  times: { t: number; ms: number }[]
+}
 const jobs = new Map<string, Job>()
-const idle = (): Job => ({ state: 'idle', current: null, done: 0, total: 0, error: null, loginNeeded: false, lines: [], queue: [] })
-const publicJob = (j: Job) => { const { queue, ...rest } = j; return { ...rest, pending: j.state === 'running' ? [...(j.current !== null ? [j.current] : []), ...queue] : [] } }
+const MAX_VIDEOS = 2
+const waiting: { id: string; run: () => Promise<void> }[] = []
+let active = 0
+const idle = (): Job => ({ state: 'idle', current: null, done: 0, total: 0, error: null, loginNeeded: false, usageLimit: false, auto: false, lines: [], queue: [], times: [] })
+const publicJob = (j: Job) => {
+  const { queue, ...rest } = j
+  return { ...rest, engine: engineLabel(), paused: aiPaused()?.reason ?? null, pending: j.state === 'running' || j.state === 'queued' ? [...(j.current !== null ? [j.current] : []), ...queue] : [] }
+}
+function pump(): void {
+  while (active < MAX_VIDEOS && waiting.length) {
+    const next = waiting.shift()!
+    active++
+    void next.run().finally(() => { active--; pump() })
+  }
+}
+// "Write automatically" turned off, or a usage limit: automatic jobs stop (a part being written finishes)
+onPolicyChange(() => {
+  if (autoWriteOn() && !aiPaused()) return
+  for (const [id, j] of jobs) {
+    if (!j.auto || (j.state !== 'queued' && j.state !== 'running')) continue
+    j.total -= j.queue.length
+    j.queue = []
+    if (j.state === 'queued') { j.state = 'stopped'; const k = waiting.findIndex((x) => x.id === id); if (k >= 0) waiting.splice(k, 1) }
+  }
+})
+
+/** The parts with no AI notes that Yaseen has not touched (what "Write missing" and the automatic job write). */
+function missingParts(ctx: LabsVideoContext, sections: ViewSection[]): number[] {
+  const doc = readNotes(notesPath(place(ctx)))
+  const orig = readOriginals(notesPath(place(ctx)))
+  const skip = new Set((doc?.sections ?? []).filter((s) => markedOf(s).length || partTouched(s, orig?.parts[String(s.t)])).map((s) => s.t))
+  return sections.filter((s) => !skip.has(s.t)).map((s) => s.t)
+}
 
 const place = (ctx: LabsVideoContext) => ({ userData: ctx.userData, videoId: ctx.videoId, markdown: ctx.markdown, folder: ctx.folder })
 
@@ -88,7 +133,8 @@ function viewData(ctx: LabsVideoContext) {
       checks, v1: v1 ? (old ? partLines(old, 0).join('\n') : '') : null,
     }
   })
-  return { file, exists: exists || existsSync(file), sections, claude: !!findClaude(), job: publicJob(jobs.get(ctx.videoId) ?? idle()), slides: slides.length }
+  const eng = engineAvailable()
+  return { file, exists: exists || existsSync(file), sections, ai: { ok: eng.ok, label: eng.label, reason: eng.reason }, job: publicJob(jobs.get(ctx.videoId) ?? idle()), slides: slides.length }
 }
 
 /**
@@ -121,16 +167,16 @@ function wasHints(ctx: LabsVideoContext) {
 
 // ---------- AI notes: one section at a time, queued per video ----------
 
-const isLogin = (m: string): boolean => /log ?in|logged out|auth|oauth|credential/i.test(m)
-
-async function notesFor(ctx: LabsVideoContext, w: Words, sec: ViewSection, log: (l: string) => void): Promise<NotesValidation> {
+async function notesFor(ctx: LabsVideoContext, w: Words, sec: ViewSection, log: (l: string) => void): Promise<NotesValidation & { ms: number }> {
   await ensureInfo(ctx.userData, ctx.videoId, log)   // the YouTube description (spelling source), fetched once
   const pc = promptContext(ctx.userData, ctx.videoId, w, sec)   // notes-format.md + principles.md read fresh every run
   const prompt = buildNotesPrompt(pc, w, sec)
   const vopts = { slides: pc.slides, paraAt: paraAtOf(w) }
   writeCache(ctx.userData, ctx.videoId, `notes-prompt-${sec.t}.txt`, prompt)
+  let ms = 0
   const ask = async (p: string, tag: string) => {
-    const r = await runClaude(p, { system: NOTES_SYSTEM, log })
+    const r = await askAI(p, { system: NOTES_SYSTEM, log })   // the Labs engine (Codex by default); bullet text, no schema
+    ms += r.ms
     writeCache(ctx.userData, ctx.videoId, `notes-response-${sec.t}${tag}.txt`, r.text)
     return r.text
   }
@@ -142,50 +188,72 @@ async function notesFor(ctx: LabsVideoContext, w: Words, sec: ViewSection, log: 
     try { v = validateNotes(await ask(retryNotesPrompt(prompt, problems), '-retry'), sec, vopts) } catch (e) { if (!(e instanceof InvalidNotes) || !v) throw e }
   }
   if (!v) throw new Error('no usable notes')
-  log(`section ${sec.t}: ${v.count} bullets, ${v.violations.length} sanitized, ${v.repairs.length} repairs, uncovered ${v.uncovered.join(',') || 'none'}`)
-  return v
+  log(`section ${sec.t}: ${v.count} bullets in ${(ms / 1000).toFixed(1)} s, ${v.violations.length} sanitized, ${v.repairs.length} repairs, uncovered ${v.uncovered.join(',') || 'none'}`)
+  return { ...v, ms }
 }
 
-function startJob(ctx: LabsVideoContext, targets: number[]): Job {
+function startJob(ctx: LabsVideoContext, targets: number[], auto = false): Job {
   let j = jobs.get(ctx.videoId)
-  if (j?.state === 'running') {
+  if (j && (j.state === 'running' || j.state === 'queued')) {
     for (const t of targets) if (!j.queue.includes(t) && j.current !== t) { j.queue.push(t); j.total++ }
+    if (!auto) j.auto = false   // a run by hand is not stopped by the auto setting
     return j
   }
-  j = { ...idle(), state: 'running', queue: [...targets], total: targets.length }
+  j = { ...idle(), state: 'queued', queue: [...targets], total: targets.length, auto }
   jobs.set(ctx.videoId, j)
   const job = j
   const log = (l: string) => { job.lines = [...job.lines, l].slice(-30); ctx.log(`notes-view ${ctx.videoId}: ${l}`) }
-  void (async () => {
+  log(`${auto ? 'automatic' : 'requested'}: ${targets.length} part(s) with ${engineLabel()}${active >= MAX_VIDEOS ? ' (waiting for another video)' : ''}`)
+  waiting.push({ id: ctx.videoId, run: async () => {
+    if (job.state !== 'queued') return
+    job.state = 'running'
     const w = loadWords(ctx.sidecar)
     const sections = computeSections(w)
     const file = notesPath(place(ctx))
+    const t0 = Date.now()
     try {
       while (job.queue.length) {
+        if (job.auto && (!autoWriteOn() || aiPaused())) { log('stopped: automatic writing is off or paused'); job.state = 'stopped'; break }
         const t = job.queue.shift()!
         const sec = sections.find((s) => s.t === t)
-        if (!sec) { job.done++; continue }
+        // an automatic job never writes a part that has notes or that Yaseen touched meanwhile
+        if (!sec || (job.auto && !missingParts(ctx, [sec]).length)) { job.done++; continue }
         job.current = t
         const v = await notesFor(ctx, w, sec, log)
         changeNotes(file, w, (doc, orig) => {
-          // keeps every bullet Yasin touched; the part's originals = the new AI texts + the kept bullets' originals
+          // keeps every bullet Yaseen touched; the part's originals = the new AI texts + the kept bullets' originals
           orig.parts[String(sec.t)] = setAiNotes(doc, sec.t, v.bullets, paraTimeOf(w), orig.parts[String(sec.t)])
         }, readSlides(cacheDir(ctx.userData, ctx.videoId)))
+        job.times.push({ t, ms: v.ms })
         job.done++
       }
-      job.state = 'done'
+      if (job.state === 'running') job.state = 'done'
+      log(`finished ${job.done}/${job.total} part(s) in ${((Date.now() - t0) / 1000).toFixed(0)} s`)
     } catch (e) {
-      const m = e instanceof Error ? e.message : String(e)
+      const m = explain(e)
       job.state = 'failed'
       job.error = m
-      job.loginNeeded = e instanceof ClaudeError && isLogin(m)
+      job.loginNeeded = e instanceof AIError && (e.kind === 'login' || e.kind === 'missing')
+      job.usageLimit = e instanceof AIError && e.kind === 'usage_limit'
+      if (job.usageLimit) pauseAI(m)   // every automatic job stops; the page says so once
       log(`failed: ${m}`)
     } finally {
       job.current = null
       job.queue = []
     }
-  })()
+  } })
+  pump()
   return job
+}
+
+/** Opening a video (or adding it to labs-library): write the missing AI notes in the background. */
+function autoNotes(ctx: LabsVideoContext): void {
+  if (!autoWriteOn() || aiPaused() || !engineAvailable().ok) return
+  const cur = jobs.get(ctx.videoId)
+  if (cur && (cur.state === 'running' || cur.state === 'queued')) return
+  let targets: number[]
+  try { targets = missingParts(ctx, computeSections(loadWords(ctx.sidecar))) } catch (e) { ctx.log(`notes-view: auto: ${e}`); return }
+  if (targets.length) startJob(ctx, targets, true)
 }
 
 // ---------- images ----------
@@ -197,6 +265,7 @@ const IMAGE_TYPES: Record<string, string> = {
 const MAX_IMAGE = 30 * 1024 * 1024
 
 export default defineMainHooks({
+  onVideo: (ctx) => autoNotes(ctx),
   route: async (req, ctx) => {
     const path = req.path
     if (path === 'view.js') return { status: 200, type: 'text/javascript; charset=utf-8', body: VIEW.js }
@@ -205,16 +274,14 @@ export default defineMainHooks({
     if (path === 'hints') return wasHints(ctx)
     if (path === 'generate/status') return publicJob(jobs.get(ctx.videoId) ?? idle())
     if (path === 'generate' && req.method === 'POST') {
-      if (!findClaude()) return { status: 503, type: 'application/json', body: JSON.stringify({ error: 'the claude command was not found' }) }
+      const eng = engineAvailable()
+      if (!eng.ok) return { status: 503, type: 'application/json', body: JSON.stringify({ error: eng.reason }) }
+      resumeAI()   // a run by hand lifts a usage-limit pause
       const w = loadWords(ctx.sidecar)
       const sections = computeSections(w)
       let targets: number[]
       if (req.query.get('all') === '1') {
-        // "Write missing": parts with no AI notes that Yasin has not touched
-        const doc = readNotes(notesPath(place(ctx)))
-        const orig = readOriginals(notesPath(place(ctx)))
-        const skip = new Set((doc?.sections ?? []).filter((s) => markedOf(s).length || partTouched(s, orig?.parts[String(s.t)])).map((s) => s.t))
-        targets = sections.filter((s) => !skip.has(s.t)).map((s) => s.t)
+        targets = missingParts(ctx, sections)   // "Write missing": no AI notes, not touched
       } else {
         const t = Number(req.query.get('t'))
         if (!sections.some((s) => s.t === t)) return { status: 400, type: 'application/json', body: JSON.stringify({ error: `no section at ${t}` }) }

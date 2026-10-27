@@ -9,7 +9,9 @@ part, in the same column — not a split view.
   paragraph. Each part's header shows the time and title; click it to play from there. Every part folds (chevron).
 - In each part:
   1. **One editor** (the docs app's Milkdown Crepe + its add-ons) holding the **🤖 AI notes** — notes in your notes
-     format (`notes-format.md` from the skills folder, read fresh every run), made by `claude -p` one part at a time —
+     format (`notes-format.md` from the skills folder, read fresh every run), made by the Labs AI engine (Codex ·
+     gpt-6.1-sol by default, or Claude — 🧪 Labs panel) one part at a time, **automatically when you open a video**
+     that has parts with no notes (a chip "🤖 Writing notes 4/12 · Codex" shows progress; parts appear as they finish) —
      the **slides** (from the `slides` experiment's `slides.json`, as docs-app image bullets at 400 px, between the
      bullets by time) **and your own words**. Type anywhere: Enter after a bullet = a new bullet (at the end of a bullet
      with children: its first child), Tab = make it a child, type inside an AI bullet to add words in the middle.
@@ -54,7 +56,8 @@ part, in the same column — not a split view.
    (autosave 0.7 s after the last key, and on leaving the editor).
 4. Right-click a bullet (or select a few words in it first) → Add note…; or type `/mochi` at the end of a bullet.
 5. Another video: **Write missing** (bar at the top: parts with no AI notes that you have not written in) or **Write
-   them** in a part. Needs `claude` logged in; otherwise it says "AI notes need `claude` login" and keeps what is there.
+   them** in a part (by hand; also lifts a usage-limit pause). If the engine is not signed in it says so ("run `codex
+   login`") and keeps what is there.
    **⟳ 🤖** on a part's header (hover) writes that part again; when you touched the part it asks first ("This part has
    your notes. Rewrite the AI notes and keep yours attached?").
 
@@ -150,7 +153,16 @@ writes to the vault); the code can also put it beside the transcript (`notesPath
   `<!-- was: … -->` is not missing; corrected names show as an info line "ℹ N corrected names".
 - **Compare with previous notes**: when `<slug>.notes.v1.md` exists beside the notes file, the bar has "🕘 Compare
   with previous notes": every part switches to the previous version (read-only) and back.
-- Pre-generating without `claude` (what was done for the two videos, twice):
+- **Engine and automatic jobs:** see docs/labs.md "The AI engine". The job runner (`main.ts`): one job per video,
+  parts one after another, at most 2 videos at a time, an automatic job only fills parts with no AI notes that you did
+  not touch (checked again before each part) and stops when "Write AI notes automatically" goes off or a usage limit
+  pauses the engine; the next open resumes the missing parts.
+- **Measured with Codex** (gpt-6.1-sol, effort medium; "The only SaaS moats left in 2026", 39.8 min, no chapters →
+  8 parts): written automatically on open in 120 s (11.9–16.7 s per part, one after another), 499 bullets, 12.7 words
+  per bullet, coverage 100 %, 0 numbers / names missing, 0 format problems, 3 "may be reworded"; the analysis alongside
+  in 62 s. Tokens: ~35k in per part (≈13–24k of them cached — Codex's own instructions), ~1.5k out; the whole video ≈
+  280k in / 17k out for the notes + 39k in / 5.6k out for the analysis.
+- Pre-generating without an engine (what was done for the Stanford and Tesla notes, twice):
   ```bash
   npx vite-node src/labs/experiments/notes-view/tool.ts -- prompts <video folder> <out dir> <userData dir>   # the exact prompts
   # answer each section-<t>.txt as section-<t>.answer.md; check one without writing anything:

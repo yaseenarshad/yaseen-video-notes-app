@@ -17,7 +17,11 @@ export interface LabsInfo {
   /** Where "Add to Library" puts new videos in Labs. */
   library: string
   experiments: (ExperimentMeta & { enabled: boolean })[]
+  /** The AI engine every Labs AI feature uses, and "write AI notes automatically". */
+  ai: LabsAiSettings & { label: string; available: boolean; paused: string | null }
 }
+
+export interface LabsAiSettings { engine: 'codex' | 'claude'; model: string; effort: 'low' | 'medium' | 'high'; autoWrite: boolean }
 
 export type Source = { kind: 'recent' } | { kind: 'inProgress' } | { kind: 'folder'; path: string }
 
@@ -121,6 +125,8 @@ export interface FaAPI {
   // 🧪 Labs (null / no-ops in the normal app)
   labsInfo(): Promise<LabsInfo | null>
   labsSetEnabled(id: string, on: boolean): Promise<LabsInfo | null>
+  /** The AI engine settings (🧪 Labs panel). */
+  labsSetAi(v: Partial<LabsAiSettings>): Promise<LabsInfo | null>
   /** Analyzed videos: id → { createdAt, highlights }. */
   labsAnalyzed(): Promise<Record<string, { createdAt: string; highlights: number }>>
   /** Calls an experiment's main-process hook (`experiments/<id>/main.ts` → ipc[method]). */

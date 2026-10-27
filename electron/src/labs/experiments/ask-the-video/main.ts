@@ -1,6 +1,7 @@
 import { join } from 'node:path'
 import { loadWords } from '../../analysis/analyze'
-import { findClaude, runClaude } from '../../analysis/claude'
+import { AIError, askAI, engineAvailable, explain } from '../../ai/engine'
+import { ASK_SCHEMA, dropNulls } from '../../ai/schemas'
 import { chunks, retryPrompt } from '../../analysis/prompt'
 import { InvalidAnswer, parseAnswer } from '../../analysis/validate'
 import { defineMainHooks, type LabsVideoContext } from '../../hooks'
@@ -9,7 +10,8 @@ import { askCacheName, askPrompt, ASK_SYSTEM, isLoginError, mergePassages, valid
 
 /**
  * Routes for the player page (`/labs/x/ask-the-video/<path>`):
- * - GET  `status` → { available, reason }: can the AI engine be tried (claude found, not known to be logged out)
+ * - GET  `status` → { available, reason }: can the AI engine be tried (the Labs engine's CLI found — Codex by
+ *   default, ai/engine.ts — and not known to be logged out)
  * - POST `ask` { q, retry? } → { ok: true, engine: 'ai', passages, ms, cached } | { ok: false, loginNeeded, error }
  * Answers are cached in Labs' userData (`labs-cache/<videoId>/ask-<hash>.json`), never the vault.
  * After a login error the engine is skipped for 10 minutes (the page shows keyword matches) unless `retry`.
@@ -31,7 +33,8 @@ let blocked: { until: number; reason: string } | null = null
 const running = new Map<string, Promise<AskResult>>()
 
 function status(): { available: boolean; reason: string | null } {
-  if (!findClaude()) return { available: false, reason: 'the claude command was not found' }
+  const eng = engineAvailable()
+  if (!eng.ok) return { available: false, reason: eng.reason }
   if (blocked && blocked.until > Date.now()) return { available: false, reason: blocked.reason }
   return { available: true, reason: null }
 }
@@ -49,21 +52,22 @@ async function ask(ctx: LabsVideoContext, q: string, retry: boolean): Promise<As
   try {
     for (let i = 0; i < cs.length; i++) {
       const prompt = askPrompt(w, q, cs[i], cs.length, i)
-      let res = await runClaude(prompt, { system: ASK_SYSTEM, timeoutMs: 5 * 60_000, log: (l) => ctx.log(`ask-the-video: ${l}`) })
+      const run = (p: string) => askAI(p, { system: ASK_SYSTEM, schema: ASK_SCHEMA, effort: 'low', timeoutMs: 5 * 60_000, log: (l) => ctx.log(`ask-the-video: ${l}`) })
+      let res = await run(prompt)
       res.models.forEach((m) => models.add(m))
       let passages: AskPassage[]
-      try { passages = validatePassages(w, parseAnswer(res.text), repairs, cs[i]) } catch (e) {
+      try { passages = validatePassages(w, parseAnswer(dropNulls(res.text)), repairs, cs[i]) } catch (e) {
         if (!(e instanceof InvalidAnswer)) throw e
         ctx.log(`ask-the-video: unusable answer (${e.message}); asking once more`)
-        res = await runClaude(retryPrompt(prompt, e.message), { system: ASK_SYSTEM, timeoutMs: 5 * 60_000, log: (l) => ctx.log(`ask-the-video: ${l}`) })
-        passages = validatePassages(w, parseAnswer(res.text), repairs, cs[i])
+        res = await run(retryPrompt(prompt, e.message))
+        passages = validatePassages(w, parseAnswer(dropNulls(res.text)), repairs, cs[i])
       }
       parts.push(passages)
     }
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e)
+    const msg = explain(e)
     ctx.log(`ask-the-video: AI search failed: ${msg}`)
-    if (isLoginError(msg)) { blocked = { until: Date.now() + BLOCK_MS, reason: msg }; return { ok: false, engine: 'ai', loginNeeded: true, error: msg } }
+    if ((e instanceof AIError && (e.kind === 'login' || e.kind === 'usage_limit')) || isLoginError(msg)) { blocked = { until: Date.now() + BLOCK_MS, reason: msg }; return { ok: false, engine: 'ai', loginNeeded: true, error: msg } }
     return { ok: false, engine: 'ai', error: msg }
   }
   blocked = null

@@ -485,6 +485,7 @@ describe('"nothing lost" checks', () => {
     expect(numbersIn(paras[3].words)).toEqual(['$2.36'])
     expect(namesIn(paras[1].words)).toEqual(['Jeff Holden', 'Atomic Machines'])
     expect(namesIn(['We', 'think', 'Optimus', 'will', 'ship.', 'Then', 'Tesla', 'wins.'])).toEqual(['Optimus'])
+    expect(namesIn(['and', 'They\'ve', 'They\'ve', 'done', 'it'])).toEqual([])
     const r = checkPart({
       paras, startPara: 0, endPara: 4,
       bullets: [B2('Costs dropped 84% in 2 months — Jeff Holden of Atomic Machines', 1), B2('Price = 2.36 per hour with FireCracker snapshots', 3), B2('Optimous ships in 2027', 4)],

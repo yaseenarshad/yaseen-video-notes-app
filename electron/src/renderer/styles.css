@@ -283,3 +283,11 @@ svg { width: 16px; height: 16px; flex: none; }
 .labs__switch input:checked + .labs__knob::after { transform: translateX(18px); }
 .labs__switch input:focus-visible + .labs__knob { box-shadow: 0 0 0 3px color-mix(in srgb, var(--labs) 35%, transparent); }
 .labs-chip { padding: 1px 8px; border-radius: 999px; background: var(--labs-soft); color: var(--labs); font-size: 12.5px; font-weight: 600; }
+
+/* 🧪 Labs: the AI engine card */
+.labs__airow { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; margin-top: 8px; font-size: 13px; }
+.labs__airow label { display: inline-flex; align-items: center; gap: 5px; }
+.labs__model { width: 150px; font: 12.5px ui-monospace, monospace; padding: 2px 6px; border-radius: 6px; border: 1px solid var(--line, #ddd); background: transparent; color: inherit; }
+.labs__auto { margin-top: 10px; }
+.labs__hint { color: var(--muted, #888); font-size: 12px; }
+.labs__warn { margin-top: 8px; color: #b54708; font-size: 12.5px; }
