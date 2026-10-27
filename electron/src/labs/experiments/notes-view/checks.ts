@@ -8,10 +8,12 @@
  *   noun of the part's paragraphs appears in the part's notes (case-insensitive). A spelling fix is fine when the
  *   notes use a spelling from the sources (slides, video title, chapter titles, YouTube description) close to it.
  * - format: no bold, no headers, no mochi tags (in the AI's text; Yasin's words are his).
+ * - corrected names (info): names fixed from general knowledge, marked `<!-- was: <captions' spelling> -->`; the
+ *   caption spelling of such a name does not count as missing.
  * - "cut, don't rewrite" (soft): the share of a bullet's content words found in its source paragraph (± the
  *   neighbours: one sentence can span a paragraph break) or its slide's text. Under 70 % → "may be reworded".
  */
-import { flatBullets, stripUser, textProblems, type Bullet } from './notesFile'
+import { captionsText, flatBullets, stripUser, textProblems, wasSpans, type Bullet } from './notesFile'
 import { normWord } from './noteTarget'
 
 export interface CheckPara { words: string[]; times: number[] }
@@ -34,6 +36,8 @@ export interface PartChecks {
   missing: string[]
   format: string[]
   reworded: { text: string; share: number; p: number }[]
+  /** Names the notes corrected from general knowledge (`<!-- was: … -->`) — info, not a warning. */
+  corrected: { name: string; was: string }[]
   /** Paragraphs with real content in the part (the coverage denominator). */
   contentParas: number
 }
@@ -158,6 +162,13 @@ export function checkPart(o: CheckInput): PartChecks {
 
   const notesLow = all.map((b) => b.text).join('\n').toLowerCase()
   const notesLetters = letters(notesLow)
+  // a caption spelling the notes corrected with a `was:` marker is covered (the corrected name is in the notes)
+  const corrected = all.flatMap((b) => wasSpans(b.text)).map((w) => ({ name: w.name, was: w.was }))
+  const wasLetters = corrected.map((c) => letters(c.was)).filter((x) => x.length >= 2)
+  const wasCovers = (name: string): boolean => {
+    const l = letters(name)
+    return wasLetters.some((w) => w === l || (l.length >= 4 && (w.includes(l) || l.includes(w))))
+  }
   const notesNums = new Set([...notesLow.matchAll(NUM_RE)].map((m) => numCore(m[0])))
   const sources = [...(o.sources ?? []), ...Object.values(o.slideText ?? {})]
   const missing: string[] = []
@@ -174,7 +185,7 @@ export function checkPart(o: CheckInput): PartChecks {
       const k = name.toLowerCase()
       if (seen.has(k)) continue
       seen.add(k)
-      if (!nameFound(name, notesLow, notesLetters, sources)) missing.push(name)
+      if (!nameFound(name, notesLow, notesLetters, sources) && !wasCovers(name)) missing.push(name)
     }
   }
 
@@ -186,8 +197,8 @@ export function checkPart(o: CheckInput): PartChecks {
     const src = [...(o.paras[b.p! - 1]?.words ?? []), ...(o.paras[b.p!]?.words ?? []), ...(o.paras[b.p! + 1]?.words ?? [])]
     const slide = b.slide ?? b.slideTitle
     if (slide !== undefined && o.slideText?.[slide]) src.push(...o.slideText[slide].split(/\s+/))
-    const share = sourceShare(stripUser(b.text), src)
+    const share = sourceShare(captionsText(stripUser(b.text)), src)   // a corrected name counts as the captions' words
     if (share < 0.7) reworded.push({ text: b.text, share: Math.round(share * 100) / 100, p: b.p! })
   }
-  return { uncovered, missing, format, reworded, contentParas }
+  return { uncovered, missing, format, reworded, corrected, contentParas }
 }

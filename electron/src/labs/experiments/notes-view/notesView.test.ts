@@ -3,7 +3,7 @@ import type { Words } from '../../analysis/words'
 import { buildNotesPrompt, InvalidNotes, validateNotes } from './aiNotes'
 import {
   assignOriginals, bulletsOf, editorPart, ensureOriginals, ensureSections, formatProblems, isEdited, markedOf, originalsFromSection, parseNotes,
-  partTouched, restoreOriginal, serializeNotes, setAiNotes, setPart, setSlides, stripUser, unmarkUser, userSpans, wrapUser,
+  partTouched, restoreOriginal, serializeNotes, setAiNotes, setPart, setSlides, stripUser, unmarkUser, userSpans, wrapUser, wasSpans, captionsText,
   type Bullet, type NotesDoc, type Originals,
 } from './notesFile'
 import { anchorWord, computeSections, timeBullets, type ViewSection } from './sections'
@@ -484,5 +484,68 @@ describe('"nothing lost" checks', () => {
     })
     expect(r.reworded.map((x) => x.text)).toEqual(['Automation expenditure plummeted dramatically recently'])
     expect(sourceShare('Robotics costs dropped', paras[1].words)).toBe(1)
+  })
+})
+
+// ---------- name corrections: `Palmer Luckey <!-- was: Palmer Lucky -->` ----------
+
+describe('name corrections (was: markers)', () => {
+  const F = '* [0:00](u&t=0s) A\n   * Teased at Moonshots Live: Palmer Luckey <!-- was: Palmer Lucky --> about to announce a prize <!-- p:3 -->\n   * Ilya Sutskever <!-- was: Ilia Sutska --> left OpenAI <!-- p:4 -->\n'
+
+  it('parses, round-trips byte for byte, and survives the editor transport', () => {
+    const d = parseNotes(F)
+    const [a, b] = bulletsOf(d.sections[0])
+    expect(a).toMatchObject({ p: 3, text: 'Teased at Moonshots Live: Palmer Luckey <!-- was: Palmer Lucky --> about to announce a prize' })
+    expect(wasSpans(a.text)).toEqual([{ nameStart: 26, end: 66, name: 'Palmer Luckey', was: 'Palmer Lucky' }])
+    expect(wasSpans(b.text).map((x) => [x.name, x.was])).toEqual([['Ilya Sutskever', 'Ilia Sutska']])
+    expect(captionsText(a.text)).toBe('Teased at Moonshots Live: Palmer Lucky about to announce a prize')
+    // the name = the capitalised words before the marker, whatever the captions' word count
+    expect(wasSpans('flew from New York to Le Bourget <!-- was: Leer --> on a whim').map((x) => x.name)).toEqual(['Le Bourget'])
+    expect(wasSpans('my Sadhguru <!-- was: Assad guru --> quote').map((x) => x.name)).toEqual(['Sadhguru'])
+    expect(wasSpans('Then Palmer Luckey <!-- was: Palmer Lucky --> said').map((x) => x.name)).toEqual(['Palmer Luckey'])
+    expect(wasSpans('the organ biostasis <!-- was: bioasis --> prize').map((x) => x.name)).toEqual(['biostasis'])
+    expect(wasSpans('the Spirit of St. Louis <!-- was: St. Lewis -->').map((x) => x.name)).toEqual(['St. Louis'])
+    expect(serializeNotes(d)).toBe(F)
+    setPart(d, 0, editorPart(d.sections[0], originalsFromSection(d.sections[0]), () => null).md)
+    expect(serializeNotes(d)).toBe(F)
+  })
+
+  it('the validator keeps them (other stray comments go)', () => {
+    const sec: ViewSection = { t: 0, end: 320, title: 'A', kind: 'chapter', startPara: 0, endPara: 1 }
+    const v = validateNotes('* Palmer Luckey <!-- was: Palmer Lucky --> <!-- junk --> announced it <!-- p:1 -->', sec)
+    expect(v.bullets[0].text).toBe('Palmer Luckey <!-- was: Palmer Lucky --> announced it')
+  })
+
+  it('the editor\'s markdown: a name mark that typing next to it or editing the name keeps intact', async () => {
+    const { unified } = await import('unified')
+    const remarkParse = (await import('remark-parse')).default
+    const remarkStringify = (await import('remark-stringify')).default
+    const { wrapWas, wasToMarkdown } = await import('./view/wasMark')
+    const proc = unified().use(remarkParse).use(remarkStringify, { bullet: '*' }).data('toMarkdownExtensions', [wasToMarkdown])
+    const tree = proc.parse('* Teased: Palmer Luckey <!-- was: Palmer Lucky --> about to announce')
+    wrapWas(tree as never)
+    type N = { type: string; value?: string; was?: string; children?: N[] }
+    const para = (tree as unknown as N).children![0].children![0].children![0]
+    expect(para.children!.map((c) => [c.type, c.value ?? c.children?.[0]?.value, c.was])).toEqual([
+      ['text', 'Teased: ', undefined], ['wasName', 'Palmer Luckey', 'Palmer Lucky'], ['text', ' about to announce', undefined],
+    ])
+    expect(String(proc.stringify(tree)).trim()).toBe('* Teased: Palmer Luckey <!-- was: Palmer Lucky --> about to announce')
+    // typing right after the name (the mark is not inclusive: plain text), and editing the name inside the mark
+    para.children![2].value = ' (Anduril) about to announce'
+    para.children![1].children![0].value = 'Palmer F. Luckey'
+    expect(String(proc.stringify(tree)).trim()).toBe('* Teased: Palmer F. Luckey <!-- was: Palmer Lucky --> (Anduril) about to announce')
+    // deleting the name deletes the marker with it
+    para.children!.splice(1, 1)
+    expect(String(proc.stringify(tree)).trim()).toBe('* Teased:  (Anduril) about to announce')
+  })
+
+  it('checks: a caption spelling corrected with was: is covered; corrections are listed as info', () => {
+    const paras = [{ words: ['Palmer', 'Lucky', 'is', 'about', 'to', 'announce', 'it.'], times: [0] }]
+    const r = checkPart({ paras, startPara: 0, endPara: 0, bullets: [{ text: 'Palmer Luckey <!-- was: Palmer Lucky --> is about to announce it', p: 0, children: [] }] })
+    expect(r.missing).toEqual([])
+    expect(r.corrected).toEqual([{ name: 'Palmer Luckey', was: 'Palmer Lucky' }])
+    expect(r.reworded).toEqual([])
+    const r2 = checkPart({ paras, startPara: 0, endPara: 0, bullets: [{ text: 'Palmer Luckey is about to announce it', p: 0, children: [] }] })
+    expect(r2.missing).toEqual(['Palmer Lucky'])
   })
 })

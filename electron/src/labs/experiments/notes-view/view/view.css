@@ -148,3 +148,7 @@
 .nv-comparing .nv-ed, .nv-comparing .nv-checks-box, .nv-comparing .nv-noai { display: none; }
 .nv-tag-v1 { color: var(--muted); border: 1px dashed var(--faint); }
 .nv-btn.nv-on { background: var(--hl); border-color: var(--muted); }
+
+/* a name corrected from general knowledge: `Palmer Luckey <!-- was: Palmer Lucky -->` */
+.nv-pane .nv-was { text-decoration: underline dotted; text-decoration-color: var(--muted); text-underline-offset: 3px; cursor: help; }
+.nv-checks-info summary { color: var(--muted); }

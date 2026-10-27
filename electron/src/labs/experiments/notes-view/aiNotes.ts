@@ -105,6 +105,7 @@ export function buildNotesPrompt(ctxOrFormat: NotesContext | string, w: Words, s
     ...(slides.length ? ['- A heading from a slide title: " <!-- p:N --> <!-- slide-title:S -->". Slide-only text: "… (slide) <!-- p:N --> <!-- slide:S -->". S = the slide number above.'] : []),
     '- Walk the paragraphs in order, sentence by sentence, and cover every paragraph with real content to the last one.',
     '- Keep every number and every person, company, product or book name.',
+    '- Spell names as the spelling sources do (no mark). A person, company, product or book name the sources do not have may be corrected from your own knowledge only when you are confident; then mark it right after the name with the captions\' exact words: "Palmer Luckey <!-- was: Palmer Lucky -->".',
     "- Cut, don't rewrite: the speaker's own words, filler removed. No bold, no headers, no mochi tags.",
     '',
     '# The transcript of this part',
@@ -188,7 +189,7 @@ export function validateNotes(answer: string, s: ViewSection, opts: ValidateOpti
         if (m) { p = Number(m[1]); t = t.slice(0, m.index).trim(); if (re !== ID_FORMS[0]) repairs.push(`id written as "${m[0].trim()}"`); break }
       }
       // a stray marker in the middle
-      t = t.replace(/\s*<!--.*?-->\s*/g, ' ').trim()
+      t = t.replace(/\s*<!--(?!\s*was:).*?-->\s*/g, ' ').trim()   // `was:` name corrections stay
       const sl = slideNs.get(slide ?? slideTitle ?? -1)
       if (p === null && sl && opts.paraAt) {
         p = Math.max(s.startPara, Math.min(s.endPara, opts.paraAt(sl.t0)))

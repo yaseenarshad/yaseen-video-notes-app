@@ -61,12 +61,28 @@
       load().then(function (v) { if (mode === 'notes') v.show(t); }).catch(function (e) { L.ui.toast('Notes view: ' + e.message, 5000); mode = 'transcript'; paint(); });
     } else {
       var at = view && view.visible() ? view.hide() : null;
+      loadHints();   // the notes may have changed
       mode = 'transcript'; paint();
       if (L.transcript.current().follow) L.transcript.setFollow(true);   // back on the current word
       else if (at !== null) { var a = L.transcript.at(at); L.transcript.scrollTo(a.para, a.word); }
     }
     if (remember) st.set('view:' + vid, m);
   }
+  // Name corrections in the notes (`Palmer Luckey <!-- was: Palmer Lucky -->`) → the same dotted underline on the
+  // captions' spelling in the transcript, tooltip "Likely: Palmer Luckey (from the notes)". Display only: a class and a
+  // title on the word elements; the transcript text and its .md never change.
+  L.ui.css('notes-view-was', '.nv-was-hint { text-decoration: underline dotted; text-decoration-color: var(--muted); text-underline-offset: 3px; cursor: help; }');
+  var hintMarks = [];
+  function loadHints() {
+    fetch('/labs/x/notes-view/hints', { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (o) {
+      hintMarks.forEach(function (m) { m.remove(); });
+      hintMarks = (o.hints || []).map(function (h) {
+        return L.transcript.highlightRange(h.span, { className: 'nv-was-hint', title: 'Likely: ' + h.name + ' (from the notes)' });
+      });
+    }).catch(function () { /* no notes file yet */ });
+  }
+  loadHints();
+
   bT.onclick = function () { setMode('transcript', true); };
   bN.onclick = function () { setMode('notes', true); };
   L.ui.addKey('shift+t', function () { setMode(mode === 'notes' ? 'transcript' : 'notes', true); }, 'Transcript / Notes (Labs)');

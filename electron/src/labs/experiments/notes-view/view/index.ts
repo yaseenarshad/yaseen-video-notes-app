@@ -23,7 +23,7 @@ import './docs/outlineFolding.css'
 import './docs/guideLines.css'
 import './docs/imageView.css'
 import './view.css'
-import { parseTree, type TreeNode } from '../notesFile'
+import { parseTree, wasSpans, type TreeNode } from '../notesFile'
 import { noteTarget, noteText } from '../noteTarget'
 import { openImageModal } from './docs/imageModal'
 import type { ImageOptions } from './docs/imageOptions'
@@ -50,7 +50,7 @@ interface Labs {
 }
 
 // ---------- the data (main.ts `data` route) ----------
-interface DChecks { uncovered: { p: number; t: number }[]; missing: string[]; format: string[]; reworded: { text: string; share: number; p: number }[]; contentParas: number }
+interface DChecks { uncovered: { p: number; t: number }[]; missing: string[]; format: string[]; reworded: { text: string; share: number; p: number }[]; corrected?: { name: string; was: string }[]; contentParas: number }
 interface DSection {
   t: number; end: number; title: string; md: string; orig: Original[]; sig: string; touched: boolean; aiCount: number; slideCount: number
   /** "Nothing lost" checks of the AI notes (null: no AI notes). */
@@ -102,8 +102,27 @@ const imageSrc = (src: string) => (/^[a-z][a-z0-9+.-]*:/i.test(src) ? src : BASE
 const labelOf = (md: string): string =>
   md.replace(/!\[([^\]|]*)(?:\|\d+)?\]\([^)]*\)/g, '$1').replace(/\[([^\]]+)\]\([^)]*\)/g, '$1').replace(/(?<!\\)==|`|\*\*|__/g, '').replace(/\\(.)/g, '$1').trim() || 'Untitled item'
 
-/** Inline markdown of a bullet: Yasin's `==…==`, code, links, images — everything else is plain text. */
+/** Inline markdown of a bullet: name corrections (`Name <!-- was: … -->`), Yasin's `==…==`, code, links, images. */
 function inline(md: string, into: HTMLElement): void {
+  const ws = wasSpans(md)
+  if (ws.length) {
+    let last = 0
+    for (const w of ws) {
+      if (w.nameStart > last) inlineText(md.slice(last, w.nameStart), into)
+      const span = el('span', 'nv-was')
+      span.dataset.was = w.was
+      span.title = `Captions said: ${w.was}`
+      inlineText(w.name, span)
+      into.append(span)
+      last = w.end
+    }
+    if (last < md.length) inlineText(md.slice(last), into)
+    return
+  }
+  inlineText(md, into)
+}
+
+function inlineText(md: string, into: HTMLElement): void {
   const re = /(?<![\\=])==(?![=\s])((?:\\.|[^=\\]|=(?!=))*?)(?<![\s\\=])==(?!=)|(`[^`]+`)|!\[([^\]]*)\]\(([^)\s]+)\)|\[([^\]]+)\]\(([^)\s]+)\)/g
   let last = 0
   for (let m = re.exec(md); m; m = re.exec(md)) {
@@ -370,6 +389,14 @@ export function mount(L: Labs, host: HTMLElement) {
     sv.checksBox.replaceChildren()
     const c = sv.d.checks
     if (!c) return
+    const fixed = c.corrected ?? []
+    if (fixed.length) {
+      // info, not a warning: names the notes corrected from general knowledge (`<!-- was: … -->`)
+      const info = el('details', 'nv-checks nv-checks-info')
+      info.append(el('summary', '', `ℹ ${fixed.length} corrected name${fixed.length > 1 ? 's' : ''}`))
+      info.append(el('div', 'nv-ck-row', fixed.map((f) => `${f.name} ← captions: ${f.was}`).join(' · ')))
+      sv.checksBox.append(info)
+    }
     const n = c.uncovered.length + c.missing.length + c.format.length + c.reworded.length
     if (!n) return
     const det = el('details', 'nv-checks')
@@ -383,7 +410,7 @@ export function mount(L: Labs, host: HTMLElement) {
     if (c.missing.length) det.append(el('div', 'nv-ck-row', `Missing: ${c.missing.join(' · ')}`))
     for (const f of c.format) det.append(el('div', 'nv-ck-row', `Format: ${f}`))
     for (const r of c.reworded) det.append(el('div', 'nv-ck-row nv-ck-rw', `May be reworded (${Math.round(r.share * 100)}% of its words in P${r.p}): ${r.text.slice(0, 120)}`))
-    sv.checksBox.append(det)
+    sv.checksBox.prepend(det)   // the ⚠ line first, the ℹ corrected names after it
   }
 
   // ---------- "Compare with previous notes" (`<slug>.notes.v1.md`) ----------

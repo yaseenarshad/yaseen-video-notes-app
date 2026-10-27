@@ -8,7 +8,8 @@ import { defineMainHooks, type LabsVideoContext } from '../../hooks'
 import { cacheDir, writeCache } from '../../store'
 import { buildNotesPrompt, InvalidNotes, NOTES_SYSTEM, retryNotesPrompt, validateNotes, type NotesValidation } from './aiNotes'
 import { checkPart } from './checks'
-import { bulletsOf, editorPart, partLines, emptyDoc, emptyOriginals, ensureOriginals, ensureSections, findSection, markedOf, originalsFromSection, partSig, partTouched, setAiNotes, setPart, slideSignature, specsSignature, assignOriginals, type Bullet, type NotesDoc, type Originals } from './notesFile'
+import { normWord } from './noteTarget'
+import { flatBullets, wasSpans, bulletsOf, editorPart, partLines, emptyDoc, emptyOriginals, ensureOriginals, ensureSections, findSection, markedOf, originalsFromSection, partSig, partTouched, setAiNotes, setPart, slideSignature, specsSignature, assignOriginals, type Bullet, type NotesDoc, type Originals } from './notesFile'
 import { computeSections, timeBullets, type ViewSection } from './sections'
 import { changeNotes, ensureInfo, paraAtOf, IMAGES_DIR, insideNotesDir, notesPath, paraTimeOf, promptContext, readInfo, readNotes, readOriginals, readSlides, sectionSpecs, slideTextMap } from './store'
 import VIEW from './view/index.ts?iife'
@@ -17,6 +18,7 @@ import VIEW from './view/index.ts?iife'
  * notes-view routes for the player page (`/labs/x/notes-view/<path>`):
  * - GET  view.js / view.css         the Notes view bundle (Milkdown Crepe + the vendored docs-app add-ons), loaded
  *                                    by player.js only when Notes is first shown
+ * - GET  hints                      transcript hints: the captions' spellings of names the notes corrected (display only)
  * - GET  data                       the parts: each one's editor markdown (bullets with p / t / o markers, slides,
  *                                    Yasin's words), the AI originals, its signature, touched; the AI job
  * - POST part?t=<part>&sig=<sig>    body = the part's editor markdown → the part (locked write). 409 when the part
@@ -87,6 +89,34 @@ function viewData(ctx: LabsVideoContext) {
     }
   })
   return { file, exists: exists || existsSync(file), sections, claude: !!findClaude(), job: publicJob(jobs.get(ctx.videoId) ?? idle()), slides: slides.length }
+}
+
+/**
+ * Transcript hints (display only): every place in the transcript where the captions' spelling of a name the notes
+ * corrected (`<!-- was: … -->`) occurs → a span + the corrected name. The transcript and its .md never change.
+ */
+const stem = (x: string): string => normWord(x).replace(/'s$/, '')   // "Lindberg's" is the captions' "Lindberg" too
+
+function wasHints(ctx: LabsVideoContext) {
+  const doc = readNotes(notesPath(place(ctx)))
+  if (!doc) return { hints: [] }
+  const w = loadWords(ctx.sidecar)
+  const pairs = new Map<string, { was: string; name: string }>()
+  for (const s of doc.sections) for (const b of flatBullets(bulletsOf(s))) for (const x of wasSpans(b.text)) {
+    const key = x.was.split(/\s+/).map(stem).filter(Boolean).join(' ')
+    if (key && !pairs.has(key)) pairs.set(key, { was: x.was, name: x.name.replace(/[,.;:!?)]+$/, '') })
+  }
+  const hints: { span: { startPara: number; startWord: number; endPara: number; endWord: number }; name: string; was: string }[] = []
+  for (const [key, pr] of pairs) {
+    const want = key.split(' ')
+    for (let p = 0; p < w.paras.length; p++) {
+      const ws = w.paras[p].map(stem)
+      for (let i = 0; i + want.length <= ws.length; i++) {
+        if (want.every((x, k) => ws[i + k] === x)) hints.push({ span: { startPara: p, startWord: i, endPara: p, endWord: i + want.length - 1 }, ...pr })
+      }
+    }
+  }
+  return { hints }
 }
 
 // ---------- AI notes: one section at a time, queued per video ----------
@@ -172,6 +202,7 @@ export default defineMainHooks({
     if (path === 'view.js') return { status: 200, type: 'text/javascript; charset=utf-8', body: VIEW.js }
     if (path === 'view.css') return { status: 200, type: 'text/css; charset=utf-8', body: VIEW.css }
     if (path === 'data') return viewData(ctx)
+    if (path === 'hints') return wasHints(ctx)
     if (path === 'generate/status') return publicJob(jobs.get(ctx.videoId) ?? idle())
     if (path === 'generate' && req.method === 'POST') {
       if (!findClaude()) return { status: 503, type: 'application/json', body: JSON.stringify({ error: 'the claude command was not found' }) }

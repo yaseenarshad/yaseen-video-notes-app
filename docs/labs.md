@@ -523,6 +523,10 @@ once when missing). New markers: `<!-- slide-title:N -->` (a heading from a slid
 `… (slide) <!-- p:N --> <!-- slide:N -->` (slide-only text). Deterministic "nothing lost" checks (`checks.ts`: coverage,
 numbers and names, format, "cut, don't rewrite") show as a ⚠ line per part. Both pre-generated videos were remade (v2)
 and the first notes kept as `<slug>.notes.v1.md`; "🕘 Compare with previous notes" switches every part between them.
+Name corrections from the model's own knowledge are marked inline, `Palmer Luckey <!-- was: Palmer Lucky -->` (a mark on
+the name in the editor, dotted underline; the Transcript view underlines the captions' spelling with "Likely: … (from
+the notes)" — display only, the transcript is never changed); the checks count such a name as covered and list it as
+"ℹ N corrected names".
 
 Shared-file edits (each commented `// added by notes-view`):
 

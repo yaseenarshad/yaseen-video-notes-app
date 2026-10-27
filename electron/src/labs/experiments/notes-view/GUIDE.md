@@ -79,7 +79,15 @@ writes to the vault); the code can also put it beside the transcript (`notesPath
   yours (or a hand edit). `==…==` = your words (the docs app's highlight syntax: exactly two `=`, no space just inside).
   An AI bullet whose text differs from its original in the sidecar was edited by you. `<!-- note:<id> -->` = sent as a
   💬 transcript note. Slides end with `<!-- slide:N -->`; a heading made from a slide's title adds
-  `<!-- slide-title:N -->` after its `p:N`, slide-only text `… (slide) <!-- p:N --> <!-- slide:N -->`. Pasted images are in `notes-images/` next to the file
+  `<!-- slide-title:N -->` after its `p:N`, slide-only text `… (slide) <!-- p:N --> <!-- slide:N -->`.
+  **Name corrections:** `Palmer Luckey <!-- was: Palmer Lucky -->` = a person / company / product / book name the
+  model corrected from its own knowledge (fixes from slides, title, chapters, description carry no mark), anywhere in
+  the text, right after the name. The name = the capitalised words right before the marker (`nameBefore`: "Then" /
+  "The" or a word ending a clause never belong to it; a lowercase term takes as many words as the captions' spelling).
+  In the editor it is a mark on the name (`view/wasMark.ts`, not inclusive): typing next to it leaves it alone, deleting
+  the name deletes the marker; dotted underline, tooltip "Captions said: Palmer Lucky". In the Transcript view the
+  captions' spelling gets the same underline, tooltip "Likely: Palmer Luckey (from the notes)" (`GET hints` →
+  `LABS.transcript.highlightRange`; display only — the transcript and its .md never change). Pasted images are in `notes-images/` next to the file
   (relative links; `|400` = the display width, Obsidian's syntax, as in the docs app).
 - **Legacy:** the first version kept your notes under a `* Yasin:` bullet at the end of the part. Such files still
   load: those bullets show inline at the end of the part, highlighted, and are written as `==…==` bullets on the next
@@ -132,7 +140,8 @@ writes to the vault); the code can also put it beside the transcript (`notesPath
   by a `p:N`; uncovered ones as clickable times), numbers and names (every number and capitalised name / proper noun
   of the part's paragraphs appears in its notes; a spelling taken from the sources is fine, letters only, ~40 % edits),
   format, and "cut, don't rewrite" (a bullet with under 70 % of its content words in its source paragraph ± 1 or its
-  slide → "may be reworded").
+  slide → "may be reworded"; a corrected name counts as the captions' words). A caption spelling corrected with
+  `<!-- was: … -->` is not missing; corrected names show as an info line "ℹ N corrected names".
 - **Compare with previous notes**: when `<slug>.notes.v1.md` exists beside the notes file, the bar has "🕘 Compare
   with previous notes": every part switches to the previous version (read-only) and back.
 - Pre-generating without `claude` (what was done for the two videos, twice):
@@ -155,6 +164,12 @@ writes to the vault); the code can also put it beside the transcript (`notesPath
   | numbers / names missing | 0 → 0 | 45 → 28 (all spelling fixes the sources do not confirm, e.g. Palmer Lucky → Luckey) |
   | "may be reworded" | 0 → 0 | 49 → 12 (all from name fixes) |
   | slide-title headings / (slide) bullets | 0 / 0 → 43 / 42 | — |
+
+  Then the general-knowledge name fixes got their `was:` markers (Tesla: 29 — Moore's, Franc, Nicolas Appert, Greg
+  Maryniak, Lindbergh ×3, St. Louis, Raymond Orteig, Le Bourget, Schelling ×2, Global Learning XPRIZE ×2, Palmer
+  Luckey, Visioneering ×6, Martine Rothblatt, Steven Kotler, Ilya Sutskever, Mundie, VoiceRun, Sadhguru ×2, Maslow;
+  Stanford: none — its fixes came from the slides and the description): missing numbers / names 28 → 14 (left: caption
+  fragments like "X-P", and fixes from the sources the letter match does not catch, e.g. Sling → Salim).
 
 ## The editor (one Crepe per part)
 

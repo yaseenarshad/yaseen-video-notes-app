@@ -139,6 +139,70 @@ export const stripUser = (text: string): string => text.replace(USER_SPAN_RE, ' 
 /** The text with the `==` marks removed (the words stay). */
 export const unmarkUser = (text: string): string => text.replace(USER_SPAN_RE, '$1')
 
+// ---------- name corrections: `Palmer Luckey <!-- was: Palmer Lucky -->` ----------
+
+/**
+ * A name the model corrected from its own knowledge, marked right after the name with the captions' spelling
+ * (notes-format.md). Fixes taken from slides / title / chapters / description carry no mark.
+ */
+export interface WasSpan {
+  /** Where the corrected name starts. */
+  nameStart: number
+  /** Where the marker comment ends (name + marker = text.slice(nameStart, end)). */
+  end: number
+  name: string
+  /** The captions' spelling. */
+  was: string
+}
+
+const WAS_MARK_RE = /[ \t]*<!--\s*was:\s*([^>]*?)\s*-->/g
+
+const NAME_STOP = new Set('The Then And But So A An In On At Of To With From By For My Our Your His Her Their This That These Those I We You He She They It Its As Is Was Like'.split(' '))
+
+/**
+ * How many characters before the marker the corrected name takes: the run of capitalised words right before it
+ * ("Palmer Luckey", "Le Bourget", "St. Louis", "Global Learning XPRIZE"; a sentence word like "Then" / "The", or a word
+ * ending a clause like "Live:", is never part of it), else — a lowercase term — as many words as the captions' spelling has. Shared with the editor.
+ */
+export function nameBefore(before: string, was: string): string | null {
+  const b = before.replace(/\s+$/, '')
+  const words = b.split(/(?<=\S)(?=\s)/)   // keeps the spaces with the following word
+  const toks: string[] = []
+  for (let i = words.length - 1; i >= 0 && toks.length < 6; i--) {
+    const t = words[i].trim()
+    if (!/^[("'“‘]*(\p{Lu}|\p{N}+\p{L})/u.test(t) || NAME_STOP.has(t.replace(/^[("'“‘]+/, ''))) break
+    // a word ending a clause ("Live:", "said,") is not part of the name after it; "St." / "Dr." / "F." are
+    if (toks.length && /[,:;!?.)]$/.test(t) && !/^(St|Dr|Mr|Mrs|Ms|Jr|Sr|Mt|\p{Lu})\.$/u.test(t)) break
+    toks.unshift(words[i])
+  }
+  if (!toks.length) {
+    const n = Math.max(1, was.split(/\s+/).filter(Boolean).length)
+    const m = new RegExp(`(?:\\S+\\s+){0,${n - 1}}\\S+$`).exec(b)
+    return m ? m[0] : null
+  }
+  return toks.join('').trim()
+}
+
+/** Every `was:` marker of a bullet text with the name it belongs to (`nameBefore`). */
+export function wasSpans(text: string): WasSpan[] {
+  const out: WasSpan[] = []
+  for (const m of text.matchAll(WAS_MARK_RE)) {
+    const was = m[1].trim()
+    const before = text.slice(0, m.index).replace(/\s+$/, '')
+    const name = nameBefore(before, was)
+    if (!name) continue
+    out.push({ nameStart: before.length - name.length, end: m.index! + m[0].length, name, was })
+  }
+  return out
+}
+
+/** The text with each corrected name put back to the captions' spelling (markers gone) — for comparing with the transcript. */
+export function captionsText(text: string): string {
+  let out = '', last = 0
+  for (const w of wasSpans(text)) { out += text.slice(last, w.nameStart) + w.was; last = w.end }
+  return out + text.slice(last)
+}
+
 /** Comparable form of a bullet text: markdown escapes undone, whitespace collapsed (the editor may re-escape). */
 export const canon = (text: string): string => text.replace(/\\([!-/:-@[-`{-~])/g, '$1').replace(/\s+/g, ' ').trim()
 

@@ -42,6 +42,7 @@ import { createImageView } from './docs/imageView'
 import { imageFile, insertPastedImage } from './docs/insertImage'
 import { outlinerKeymap } from './docs/listCommands'
 import { createOutlineFolding } from './docs/outlineFolding'
+import { wasName } from './wasMark'
 
 export interface Original { p: number; text: string }
 
@@ -489,6 +490,7 @@ export async function createPartEditor(o: PartEditorOptions): Promise<PartEditor
     .use(imageTitles)
     .use(listItemMarkers)
     .use(highlight)
+    .use(wasName)
     .use(createOutlineFolding({ seedCollapsedKeys: o.foldKeys, onCollapsedKeysChange: o.onFoldKeys }))
     .use(guideLines)
     .use(outlinerKeymap)
