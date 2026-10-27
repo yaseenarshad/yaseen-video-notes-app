@@ -7,68 +7,70 @@ import type { Words } from '../../analysis/words'
 import { defineMainHooks, type LabsVideoContext } from '../../hooks'
 import { cacheDir, writeCache } from '../../store'
 import { buildNotesPrompt, InvalidNotes, NOTES_SYSTEM, retryNotesPrompt, validateNotes, type NotesValidation } from './aiNotes'
-import { aiOf, emptyDoc, ensureSections, setAiNotes, setYasin, slideSignature, specsSignature, yasinOf, type AiBullet, type NotesDoc } from './notesFile'
+import { bulletsOf, editorPart, emptyDoc, emptyOriginals, ensureOriginals, ensureSections, findSection, markedOf, originalsFromSection, partSig, partTouched, setAiNotes, setPart, slideSignature, specsSignature, assignOriginals, type Bullet, type NotesDoc, type Originals } from './notesFile'
 import { computeSections, timeBullets, type ViewSection } from './sections'
-import { changeNotes, IMAGES_DIR, insideNotesDir, notesPath, paraTimeOf, readFormat, readNotes, readSlides, sectionSpecs } from './store'
+import { changeNotes, IMAGES_DIR, insideNotesDir, notesPath, paraTimeOf, readFormat, readNotes, readOriginals, readSlides, sectionSpecs } from './store'
 import VIEW from './view/index.ts?iife'
 
 /**
  * notes-view routes for the player page (`/labs/x/notes-view/<path>`):
  * - GET  view.js / view.css         the Notes view bundle (Milkdown Crepe + the vendored docs-app add-ons), loaded
  *                                    by player.js only when Notes is first shown
- * - GET  data                       sections + AI bullets (with times) + slides + the Yasin notes + the AI job
- * - POST yasin?t=<section>          body = the editor's markdown → the section's `Yasin:` subtree (locked write)
+ * - GET  data                       the parts: each one's editor markdown (bullets with p / t / o markers, slides,
+ *                                    Yasin's words), the AI originals, its signature, touched; the AI job
+ * - POST part?t=<part>&sig=<sig>    body = the part's editor markdown → the part (locked write). 409 when the part
+ *                                    changed since `sig` (the posted markdown is kept in labs-cache/<id>/notes-conflict-*.md)
  * - POST image {path, data}         a pasted / dropped image → `notes-images/<name>` next to the notes file (409 = taken)
  * - GET  file/<rel>                 an image beside the notes file (notes-images/…, slides/…)
- * - POST generate?t=<s>[&force=1] | ?all=1   AI notes (`claude -p`, one section at a time); GET generate/status
+ * - POST generate?t=<s> | ?all=1    AI notes (`claude -p`, one part at a time; all = the parts with no AI notes that
+ *                                    Yasin has not touched); GET generate/status
  * Everything is written in Labs' userData (`labs-cache/<id>/`), never the vault.
  */
 
 interface Job { state: 'idle' | 'running' | 'done' | 'failed'; current: number | null; done: number; total: number; error: string | null; loginNeeded: boolean; lines: string[]; queue: number[] }
 const jobs = new Map<string, Job>()
 const idle = (): Job => ({ state: 'idle', current: null, done: 0, total: 0, error: null, loginNeeded: false, lines: [], queue: [] })
-const publicJob = (j: Job) => { const { queue: _q, ...rest } = j; return rest }
+const publicJob = (j: Job) => { const { queue, ...rest } = j; return { ...rest, pending: j.state === 'running' ? [...(j.current !== null ? [j.current] : []), ...queue] : [] } }
 
 const place = (ctx: LabsVideoContext) => ({ userData: ctx.userData, videoId: ctx.videoId, markdown: ctx.markdown, folder: ctx.folder })
 
-interface DNode { text: string; p: number; t: number; children: DNode[] }
-type DItem = { kind: 'ai'; node: DNode } | { kind: 'slide'; n: number; alt: string; src: string; t: number | null } | { kind: 'other'; lines: string[] }
-
-function timedTree(bullets: AiBullet[], w: Words): DNode[] {
-  const flat = timeBullets(bullets, w)
-  let k = 0
-  const conv = (b: AiBullet): DNode => {
-    const t = Math.round((flat[k++]?.t ?? 0) * 100) / 100
-    return { text: b.text, p: b.p, t, children: b.children.map(conv) }
-  }
-  return bullets.map(conv)
+/** Each marked bullet's time (word match of its original text when it has one: Yasin's rewording may not match). */
+function bulletTimes(bs: Bullet[], orig: ReturnType<typeof assignOriginals>, w: Words): Map<Bullet, number> {
+  const marked: Bullet[] = []
+  const walk = (b: Bullet) => { if (b.p !== null) marked.push(b); b.children.forEach(walk) }
+  bs.forEach(walk)
+  const flat = timeBullets(marked.map((b) => ({ text: orig.get(b)?.text ?? b.text, p: b.p, children: [] })), w)
+  return new Map(marked.map((b, i) => [b, Math.round((flat[i]?.t ?? 0) * 100) / 100]))
 }
 
-const fileUrl = (rel: string): string => 'file/' + rel.split('/').map(encodeURIComponent).join('/')
-const countAi = (bs: AiBullet[]): number => bs.reduce((n, b) => n + 1 + countAi(b.children), 0)
+/** The sidecar is missing a part that has AI bullets (files made before it) → it must be written once. */
+const needsOriginals = (doc: NotesDoc, orig: Originals | null): boolean =>
+  ensureOriginals({ ...doc, sections: doc.sections }, orig ? { version: 1, parts: { ...orig.parts } } : emptyOriginals())
 
 function viewData(ctx: LabsVideoContext) {
   const w = loadWords(ctx.sidecar)
   const file = notesPath(place(ctx))
   const slides = readSlides(cacheDir(ctx.userData, ctx.videoId))
   let doc: NotesDoc | null = readNotes(file)
+  let orig = readOriginals(file)
   const exists = doc !== null
-  // slides.json is new or changed → refresh the slide bullets in the file (Yasin notes untouched)
-  if (slides.length && (!doc || slideSignature(doc) !== specsSignature(slides))) doc = changeNotes(file, w, () => {}, slides)
+  // slides.json is new or changed → refresh the slide bullets; an old file with no sidecar → write the sidecar
+  if ((slides.length && (!doc || slideSignature(doc) !== specsSignature(slides))) || (doc && needsOriginals(doc, orig))) {
+    doc = changeNotes(file, w, () => {}, slides)
+    orig = readOriginals(file)
+  }
   doc = doc ?? emptyDoc(`Notes — ${w.title}`)
   ensureSections(doc, sectionSpecs(w, computeSections(w)))
   const dur = Math.ceil(w.duration || 0)
   const sections = doc.sections.map((s, i) => {
-    const ai = aiOf(s)
-    const nodes = timedTree(ai, w)
-    let k = 0
-    const items = s.items.flatMap((it): DItem[] => {
-      if (it.kind === 'ai') return [{ kind: 'ai' as const, node: nodes[k++] }]
-      if (it.kind === 'slide') return [{ kind: 'slide' as const, n: it.n, alt: it.alt, src: `/labs/x/notes-view/${fileUrl(it.src)}`, t: it.t }]
-      if (it.kind === 'other') return [{ kind: 'other' as const, lines: it.lines }]
-      return []
-    })
-    return { t: s.t, end: doc!.sections[i + 1]?.t ?? Math.max(dur, s.t + 1), title: s.title, aiCount: countAi(ai), items, yasin: yasinOf(s) }
+    const po = orig?.parts[String(s.t)] ?? originalsFromSection(s)
+    const times = bulletTimes(bulletsOf(s), assignOriginals(bulletsOf(s), po), w)
+    const ed = editorPart(s, po, (b) => times.get(b) ?? null)
+    return {
+      t: s.t, end: doc!.sections[i + 1]?.t ?? Math.max(dur, s.t + 1), title: s.title,
+      md: ed.md, orig: ed.orig, sig: partSig(s), touched: partTouched(s, po),
+      aiCount: markedOf(s).length, slideCount: s.items.filter((x) => x.kind === 'slide').length,
+    }
   })
   return { file, exists: exists || existsSync(file), sections, claude: !!findClaude(), job: publicJob(jobs.get(ctx.videoId) ?? idle()), slides: slides.length }
 }
@@ -118,7 +120,10 @@ function startJob(ctx: LabsVideoContext, targets: number[]): Job {
         if (!sec) { job.done++; continue }
         job.current = t
         const v = await notesFor(ctx, w, sec, log)
-        changeNotes(file, w, (doc) => setAiNotes(doc, sec.t, v.bullets, paraTimeOf(w)), readSlides(cacheDir(ctx.userData, ctx.videoId)))
+        changeNotes(file, w, (doc, orig) => {
+          // keeps every bullet Yasin touched; the part's originals = the new AI texts + the kept bullets' originals
+          orig.parts[String(sec.t)] = setAiNotes(doc, sec.t, v.bullets, paraTimeOf(w), orig.parts[String(sec.t)])
+        }, readSlides(cacheDir(ctx.userData, ctx.videoId)))
         job.done++
       }
       job.state = 'done'
@@ -157,9 +162,11 @@ export default defineMainHooks({
       const sections = computeSections(w)
       let targets: number[]
       if (req.query.get('all') === '1') {
+        // "Write missing": parts with no AI notes that Yasin has not touched
         const doc = readNotes(notesPath(place(ctx)))
-        const has = new Set((doc?.sections ?? []).filter((s) => aiOf(s).length).map((s) => s.t))
-        targets = sections.filter((s) => req.query.get('force') === '1' || !has.has(s.t)).map((s) => s.t)
+        const orig = readOriginals(notesPath(place(ctx)))
+        const skip = new Set((doc?.sections ?? []).filter((s) => markedOf(s).length || partTouched(s, orig?.parts[String(s.t)])).map((s) => s.t))
+        targets = sections.filter((s) => !skip.has(s.t)).map((s) => s.t)
       } else {
         const t = Number(req.query.get('t'))
         if (!sections.some((s) => s.t === t)) return { status: 400, type: 'application/json', body: JSON.stringify({ error: `no section at ${t}` }) }
@@ -167,13 +174,28 @@ export default defineMainHooks({
       }
       return publicJob(startJob(ctx, targets))
     }
-    if (path === 'yasin' && req.method === 'POST') {
+    if (path === 'part' && req.method === 'POST') {
       const t = Number(req.query.get('t'))
+      const base = req.query.get('sig') ?? ''
       const w = loadWords(ctx.sidecar)
       const file = notesPath(place(ctx))
-      const doc = changeNotes(file, w, (d) => setYasin(d, t, req.body), readSlides(cacheDir(ctx.userData, ctx.videoId)))
-      const s = doc.sections.find((x) => x.t === Math.floor(t))
-      return { ok: true, md: s ? yasinOf(s) : '' }
+      let conflict = false
+      const doc = changeNotes(file, w, (d) => {
+        const s = findSection(d, t)
+        if (!s) throw new Error(`no part at ${t}`)
+        if (partSig(s) !== base) { conflict = true; return }
+        setPart(d, t, req.body)
+      }, readSlides(cacheDir(ctx.userData, ctx.videoId)))
+      if (conflict) {
+        // never lose typing: the editor's version is kept beside the notes file, then the page reloads the part
+        const name = `notes-conflict-${Math.floor(t)}-${new Date().toISOString().replace(/[:.]/g, '-')}.md`
+        writeCache(ctx.userData, ctx.videoId, name, req.body)
+        ctx.log(`notes-view ${ctx.videoId}: part ${t} changed underneath; editor version kept as ${name}`)
+        return { status: 409, type: 'application/json', body: JSON.stringify({ error: 'the part changed (AI notes were rewritten)', kept: name }) }
+      }
+      const s = findSection(doc, t)!
+      const orig = readOriginals(file)
+      return { ok: true, sig: partSig(s), touched: partTouched(s, orig?.parts[String(s.t)]), aiCount: markedOf(s).length }
     }
     if (path === 'image' && req.method === 'POST') {
       let o: { path?: unknown; data?: unknown }

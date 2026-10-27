@@ -71,17 +71,59 @@
 .nv-resolved p { opacity: .6; }
 .nv-other p { color: var(--muted); }
 
-/* the Yasin editor */
-.nv-yasin { margin-top: 4px; }
-.nv-save { font: 400 11px system-ui, sans-serif; color: var(--muted); }
+/* the part's editor (AI bullets + Yasin's words) */
+.nv-save { font: 400 11px system-ui, sans-serif; color: var(--muted); margin-left: 4px; white-space: nowrap; }
+.nv-save:empty { display: none; }
 .nv-save-edited { color: var(--accent); }
 .nv-save-error { color: #d92d20; }
 .nv-ed { min-height: 28px; border-radius: 6px; }
 .nv-ed-empty { font: calc(var(--text-size)) / 1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: var(--faint); padding: 4px 0 4px 34px; cursor: text; border-radius: 6px; }
 .nv-ed-empty:hover { color: var(--muted); background: color-mix(in srgb, var(--hl) 50%, transparent); }
-.nv-ed-loading { color: var(--faint); padding: 4px 34px; }
 .nv-pane .nv-ed .milkdown .ProseMirror { min-height: 28px; }
-.nv-pane .nv-ed:focus-within { background: color-mix(in srgb, var(--hl) 35%, transparent); }
+.nv-pane .nv-static .ProseMirror p { cursor: text; }
+
+/* Yasin's own words (typed / pasted; `==…==` in the file): a soft green, not the player's yellow phrase highlight */
+.nv-pane { --nv-me-bg: #dcf1e1; --nv-me-ink: inherit; --nv-me-edge: #3f9b5a; }
+.nv-pane.nv-dark { --nv-me-bg: #1f3a29; --nv-me-ink: #e3f5e8; --nv-me-edge: #6fcf8a; }
+.nv-pane mark { background: var(--nv-me-bg); color: var(--nv-me-ink); border-radius: 3px; padding: 0 1px; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+
+/* markers' widgets: time chip (play), ✎ edited, 🃏 / 💬 note badges */
+.nv-pane .nv-pm { font: 11px ui-monospace, monospace; color: var(--faint); margin-left: 6px; cursor: pointer; user-select: none; opacity: 0; transition: opacity .12s; white-space: nowrap; }
+.nv-pane p:hover > .nv-pm, .nv-pane .nv-cur-b > li > .children > .content-dom > p > .nv-pm, .nv-pane .nv-slide .nv-pm { opacity: 1; }
+.nv-pane .nv-pm:hover { color: var(--accent); }
+.nv-pane .nv-edited { font: 12px system-ui, sans-serif; color: var(--nv-me-edge); margin-left: 5px; cursor: help; user-select: none; }
+.nv-pane .nv-nb { font-size: 12px; margin-left: 5px; cursor: pointer; user-select: none; }
+.nv-pane .nv-nb-gone { opacity: .45; filter: grayscale(1); }
+
+/* slides in the editor: the docs app pastes images at 400 px; a slide's time chip always shows */
+.nv-pane .image-view img[src*="/file/slides/"] { --image-width: 400px; max-height: 46vh; object-fit: contain; }
+.nv-pane p:has(.image-view) > .nv-pm { opacity: 1; }
+
+/* the ✎ popover: the AI's original + Restore */
+.nv-inner { position: relative; }
+.nv-orig-pop { position: absolute; z-index: 30; width: 340px; padding: 10px 12px; border-radius: 10px; background: var(--panel); color: var(--ink);
+  border: 1px solid var(--line); box-shadow: 0 8px 28px rgba(0,0,0,.18); font: 13px/1.45 system-ui, sans-serif; }
+.nv-orig-h { font-weight: 600; margin-bottom: 4px; }
+.nv-orig-l { color: var(--muted); font-size: 12px; margin-bottom: 4px; }
+.nv-orig-text { margin-bottom: 8px; }
+
+/* right-click menu, slash menu, confirm */
+.nv-menu, .nv-slash { position: fixed; z-index: 1000; min-width: 220px; padding: 4px; border-radius: 9px; background: var(--panel); color: var(--ink);
+  border: 1px solid var(--line); box-shadow: 0 10px 30px rgba(0,0,0,.2); font: 13px system-ui, sans-serif; }
+.nv-menu button { display: block; width: 100%; text-align: left; border: 0; background: transparent; color: inherit; font: inherit; padding: 6px 10px; border-radius: 6px; cursor: pointer; }
+.nv-menu button:hover { background: var(--hl); }
+.nv-menu-hint { color: var(--muted); font-size: 11.5px; padding: 3px 10px 5px; border-bottom: 1px solid var(--line); margin-bottom: 3px; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nv-slash-item { padding: 6px 10px; border-radius: 6px; cursor: pointer; }
+.nv-slash-item.on, .nv-slash-item:hover { background: var(--hl); }
+.nv-confirm { position: absolute; inset: 0; z-index: 1000; background: rgba(0,0,0,.25); display: flex; align-items: center; justify-content: center; }
+.nv-confirm-box { background: var(--panel); color: var(--ink); border-radius: 12px; padding: 16px 18px; max-width: 380px; box-shadow: 0 12px 40px rgba(0,0,0,.3); font: 14px/1.5 system-ui, sans-serif; }
+.nv-confirm-row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
+.nv-btn-primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+/* the transcript's note composer, opened under a bullet */
+.nv-compose { position: absolute; left: 30px; right: 0; z-index: 25; }
+.nv-compose .composer { box-shadow: 0 8px 26px rgba(0,0,0,.18); background: var(--panel); }
+.nv-mcat { font-size: 12px; }
 
 /* Crepe's floating UI (toolbar, link tooltip) above the pane */
 .nv-pane .milkdown-toolbar, .nv-pane .milkdown-link-preview, .nv-pane .milkdown-link-edit { z-index: 20; }

@@ -1053,11 +1053,14 @@ function renderNotes(list) {
 async function loadNotes() { try { renderNotes(await getJSON('/api/notes')); } catch (e) {} }
 loadNotes(); setInterval(loadNotes, 1000);   // picks up notes typed in Obsidian too
 
-function openComposer(sel, edit) {
-  if (composing) { composing.querySelector('textarea').focus(); return; }
+// added by notes-view: `opts` = { host, para, time, category, text, onSaved(notes), onClose() } — the Notes view (Labs)
+// opens this same composer in its own column (`host`), for a paragraph / time it gives, prefilled
+function openComposer(sel, edit, opts) {
+  opts = opts || {};
+  if (composing) { composing.querySelector('textarea').focus(); return false; }
   selbtn.classList.remove('show');
   if (edit) sel = null;
-  const para = edit ? edit.para : sel ? sel.para : Math.max(curP, 0), time = sel ? sel.start : now(), wasPlaying = !P.paused;
+  const para = edit ? edit.para : sel ? sel.para : opts.para != null ? opts.para : Math.max(curP, 0), time = sel ? sel.start : opts.time != null ? opts.time : now(), wasPlaying = !P.paused;
   if (wasPlaying) togglePlay();
   if (sel) { window.getSelection().removeAllRanges(); tint(sel.words, true, 'pending'); }
   const c = document.createElement('div'); c.className = 'composer';
@@ -1071,9 +1074,9 @@ function openComposer(sel, edit) {
                    : sel ? '💬 note on ' + fmt(sel.start) + '–' + fmt(sel.end) + ' “' + short + '” — Enter to save, Esc to cancel'
                          : '💬 note at ' + fmt(time) + ' — Enter to save, Esc to cancel';
   const ta = document.createElement('textarea');
-  if (edit) ta.value = edit.text;
+  if (edit) ta.value = edit.text; else if (opts.text) ta.value = opts.text;
   // category: one click on a pill, or Tab while typing; a new note starts with the last-used one
-  let category = edit ? edit.category : (PREFS.noteCategory === 'mochi' ? 'mochi' : 'general');
+  let category = edit ? edit.category : opts.category ? opts.category : (PREFS.noteCategory === 'mochi' ? 'mochi' : 'general');
   const cats = document.createElement('div'); cats.className = 'cats';
   const pills = [['general', 'General'], ['mochi', '🃏 Mochi']].map(([k, label]) => {
     const b = document.createElement('button'); b.type = 'button'; b.className = 'cat ' + k; b.dataset.c = k; b.textContent = label;
@@ -1091,7 +1094,8 @@ function openComposer(sel, edit) {
   if (ro) c.insertBefore(ro, hint);
   // inline where the saved note will appear: after the highlight's last word, or after the word at
   // this moment (the same place noteAnchor gives the saved note); or in place of the note being edited
-  if (edit && edit.el && edit.el.isConnected) { edit.el.after(c); edit.el.style.display = 'none'; }
+  if (opts.host) opts.host.appendChild(c);
+  else if (edit && edit.el && edit.el.isConnected) { edit.el.after(c); edit.el.style.display = 'none'; }
   else {
     const last = sel ? sel.words[sel.words.length - 1] : null;
     const at = last && last[0] === para ? last[1] : anchorOf({ para, time: Math.floor(time) }).anchor;
@@ -1099,22 +1103,24 @@ function openComposer(sel, edit) {
   }
   composing = c; selActive = false; updateBack();
   ta.focus({ preventScroll: true });
+  if (opts.text) ta.setSelectionRange(ta.value.length, ta.value.length);
   // The box grows with the text (no drag handle); past half the window it scrolls inside instead.
   const grow = () => {
     ta.style.height = 'auto';
     const max = Math.round(scroller.clientHeight * 0.5);
     ta.style.height = Math.min(ta.scrollHeight, max) + 'px';
     ta.style.overflowY = ta.scrollHeight > max ? 'auto' : 'hidden';
+    if (opts.host) { c.scrollIntoView({ block: 'nearest' }); return; }
     const b = c.getBoundingClientRect().bottom, sb = scroller.getBoundingClientRect().bottom - 20;
     if (b > sb) scroller.scrollTop += b - sb;   // keep the line being typed on screen
   };
   ta.addEventListener('input', grow);
   grow();
   const cr = c.getBoundingClientRect(), sr = scroller.getBoundingClientRect();
-  if (cr.bottom > sr.bottom - 20 || cr.top < sr.top) keepInView(c, true);
+  if (!opts.host && (cr.bottom > sr.bottom - 20 || cr.top < sr.top)) keepInView(c, true);
   const close = () => { const box = c.parentElement; c.remove(); if (box && box.classList.contains('ncards') && !box.children.length) box.remove();
     composing = null; updateBack(); if (sel) tint(sel.words, false, 'pending');
-    if (edit && edit.el) edit.el.style.display = ''; if (wasPlaying) togglePlay(); };
+    if (edit && edit.el) edit.el.style.display = ''; if (wasPlaying) togglePlay(); if (opts.onClose) opts.onClose(); };
   xb.onclick = () => { native({ type: 'note-cancel', by: 'close-button' }); close(); };
   ta.addEventListener('keydown', async e => {
     e.stopPropagation();
@@ -1134,6 +1140,7 @@ function openComposer(sel, edit) {
         const out = await r.json();
         if (!r.ok) throw new Error(out.error || r.status);
         close(); renderNotes(out); toast(PREFS.readOnly ? 'Labs is read-only — note not saved' : category === 'mochi' ? 'Mochi note saved to .md' : 'Note saved to .md', PREFS.readOnly ? 3000 : undefined);
+        if (opts.onSaved) opts.onSaved(out, { para, time, text, category });   // added by notes-view
         if (PREFS.noteCategory !== category) savePrefs({ noteCategory: category });   // the next note starts with this one
         native({ type: 'note-saved', para, time, end: body.end, quote: body.quote, text, category });
       } catch (err) { toast('Could not save: ' + err.message); native({ type: 'error', message: 'note: ' + err.message }); }
@@ -1322,6 +1329,7 @@ window.FA_INTERNAL = {
   DATA, CHAPTERS, PREFS, P, paraEls, wordEls, starts, now, seekTo, setFollow, keepInView, togglePlay, pause, setSpeed,
   getSpeed: () => speed, state: () => ({ para: curP, word: curW, chapter: curC, follow }), toast, actionToast, native, fmt,
   showPanel, addPanelTab, notes: () => notesList,
+  openComposer,   // added by notes-view: the note composer, opened from the Notes view (see openComposer's opts)
   addKey: (key, fn, description) => {   // false: the app's own key (never taken over)
     if ([' ', 's', 'd', 'r', 'g', 'z', 'x', 'v', 'n', 'f', 'h', '?', 'arrowleft', 'arrowright', 'escape', 'shift+f', 'shift+h'].includes(key)) return false;
     labsKeys[key] = { fn, description: description || '' }; return true;

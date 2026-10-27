@@ -290,8 +290,17 @@
       // added by mochi-candidates: the user's notes as the player shows them (read-only copies, sorted by time)
       notes: function () {
         return (F.notes ? F.notes() : []).map(function (n) {
-          return { para: n.para, time: n.time, end: n.end == null ? null : n.end, t: n.t, text: n.text, quote: n.quote || null, category: n.category, resolved: !!n.resolved };
+          return { id: n.id, para: n.para, time: n.time, end: n.end == null ? null : n.end, t: n.t, text: n.text, quote: n.quote || null, category: n.category, resolved: !!n.resolved };
         });
+      },
+      // added by notes-view: open the player's own note composer (General / 🃏 Mochi pills, ×, Enter saves through the
+      // normal locked note write; Labs shows its read-only hint) inside `host`, for paragraph `para` at `time`; with
+      // `end` + `quote` (+ `words`: [[p, w]…] to tint) it is a note on those words. onSaved(notes) gets the notes as
+      // saved (each with its id); onClose() fires when it closes. → false when a composer is already open.
+      composeNote: function (o) {
+        if (!F.openComposer) return false;
+        var sel = o.quote ? { para: o.para, start: o.time, end: o.end == null ? o.time : o.end, quote: o.quote, words: o.words || [] } : null;
+        return F.openComposer(sel, null, { host: o.host, para: o.para, time: o.time, category: o.category, text: o.text, onSaved: o.onSaved, onClose: o.onClose }) !== false;
       },
       ui: ui,
       store: store,

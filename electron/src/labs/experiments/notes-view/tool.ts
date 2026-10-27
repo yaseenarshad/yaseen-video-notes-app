@@ -5,7 +5,8 @@
  *       writes section-<t>.txt = the exact prompt the app sends to `claude -p` for each section (notes-format.md read now)
  *   npx vite-node src/labs/experiments/notes-view/tool.ts -- apply <video folder> <answers dir> <userData dir>
  *       reads section-<t>.answer.md for every section that has one, runs it through the app's validator and writes the
- *       bullets into <userData>/labs-cache/<id>/<slug>.notes.md (the same locked write as the app; Yasin notes kept)
+ *       bullets into <userData>/labs-cache/<id>/<slug>.notes.md + the originals into <slug>.notes-ai.json (the same
+ *       locked write as the app; bullets Yasin touched are kept)
  *   npx vite-node src/labs/experiments/notes-view/tool.ts -- check <notes.md>
  *       parses a notes file and lists format problems (bold, headers, mochi tags) of its AI bullets
  *
@@ -47,7 +48,7 @@ if (cmd === 'prompts') {
     const ans = join(b, `section-${s.t}.answer.md`)
     if (!existsSync(ans)) { console.log(`${s.t}: no answer`); continue }
     const v = validateNotes(readFileSync(ans, 'utf8'), s)
-    changeNotes(file, w, (doc) => setAiNotes(doc, s.t, v.bullets, paraTimeOf(w)), slides)
+    changeNotes(file, w, (doc, orig) => { orig.parts[String(s.t)] = setAiNotes(doc, s.t, v.bullets, paraTimeOf(w), orig.parts[String(s.t)]) }, slides)
     console.log(`${s.t} ${s.title}: ${v.count} bullets · violations ${v.violations.length}${v.violations.length ? ' ' + JSON.stringify(v.violations.slice(0, 3)) : ''} · repairs ${v.repairs.length}${v.repairs.length ? ' ' + JSON.stringify(v.repairs.slice(0, 3)) : ''} · uncovered ${v.uncovered.join(',') || 'none'}`)
   }
   console.log(`→ ${file}`)

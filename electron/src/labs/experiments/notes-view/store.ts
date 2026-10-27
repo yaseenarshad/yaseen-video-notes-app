@@ -14,7 +14,7 @@ import { atomicWrite } from '../../../core/atomic'
 import { withFileLock } from '../../../core/fileLock'
 import type { Words } from '../../analysis/words'
 import { cacheDir, readJSON } from '../../store'
-import { emptyDoc, ensureSections, parseNotes, serializeNotes, setSlides, slideSignature, specsSignature, videoUrl, type NotesDoc, type SlideSpec } from './notesFile'
+import { emptyDoc, emptyOriginals, ensureOriginals, ensureSections, parseNotes, serializeNotes, setSlides, slideSignature, specsSignature, videoUrl, type NotesDoc, type Originals, type SlideSpec } from './notesFile'
 import { computeSections, type ViewSection } from './sections'
 
 export const IMAGES_DIR = 'notes-images'
@@ -57,17 +57,36 @@ export function readNotes(file: string): NotesDoc | null {
   try { return parseNotes(readFileSync(file, 'utf8')) } catch { return null }
 }
 
-/** Read fresh → change → write, under the notes file's lock. `change` gets a doc with every section present. */
-export function changeNotes(file: string, w: Words, change: (doc: NotesDoc) => NotesDoc | void, slides?: SlideSpec[] | null): NotesDoc {
+/** The AI's originals of a notes file: `<slug>.notes-ai.json` beside it (never in the .md). */
+export const originalsPath = (notesFile: string): string => notesFile.replace(/\.notes\.md$/, '') + '.notes-ai.json'
+
+export function readOriginals(notesFile: string): Originals | null {
+  try {
+    const o = JSON.parse(readFileSync(originalsPath(notesFile), 'utf8')) as Originals
+    return o && typeof o === 'object' && o.parts && typeof o.parts === 'object' ? { version: 1, parts: o.parts } : null
+  } catch { return null }
+}
+
+/**
+ * Read fresh → change → write, under the notes file's lock (the sidecar is read and written under the same lock).
+ * `change` gets a doc with every part present and the originals (a part with none yet gets them from its current
+ * bullets: files made before the sidecar); both files are written only when they changed.
+ */
+export function changeNotes(file: string, w: Words, change: (doc: NotesDoc, orig: Originals) => NotesDoc | void, slides?: SlideSpec[] | null): NotesDoc {
   mkdirSync(dirname(file), { recursive: true })
   return withFileLock(file, () => {
     const before = existsSync(file) ? readFileSync(file, 'utf8') : null
     let doc = before !== null ? parseNotes(before) : emptyDoc(`Notes — ${w.title}`)
     ensureSections(doc, sectionSpecs(w, computeSections(w)))
+    const orig = readOriginals(file) ?? emptyOriginals()
+    const origBefore = JSON.stringify(orig)
+    ensureOriginals(doc, orig)   // before any change: the originals are the file as it was
     if (slides && slideSignature(doc) !== specsSignature(slides)) setSlides(doc, slides, paraTimeOf(w))
-    doc = change(doc) ?? doc
+    doc = change(doc, orig) ?? doc
     const after = serializeNotes(doc)
     if (after !== before) atomicWrite(file, after)
+    const origAfter = JSON.stringify(orig)
+    if (origAfter !== origBefore) atomicWrite(originalsPath(file), JSON.stringify(orig, null, 1) + '\n')
     return doc
   })
 }

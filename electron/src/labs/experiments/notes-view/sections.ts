@@ -102,13 +102,20 @@ export interface TimedBullet { bullet: AiBullet; t: number; word: number; depth:
 export function timeBullets(bullets: AiBullet[], w: Words): TimedBullet[] {
   const out: TimedBullet[] = []
   const lastWord = new Map<number, number>()
+  let lastT = 0
   const walk = (b: AiBullet, depth: number) => {
+    if (b.p === null) {   // Yasin's own bullet: no paragraph, it takes the time before it
+      out.push({ bullet: b, t: lastT, word: -1, depth })
+      b.children.forEach((c) => walk(c, depth + 1))
+      return
+    }
     const p = Math.max(0, Math.min(w.paras.length - 1, b.p))
     const from = lastWord.get(p) ?? 0
     const a = anchorWord(b.text, w.paras[p] ?? [], from)
     const word = a >= 0 ? a : from
     lastWord.set(p, word)
-    out.push({ bullet: b, t: w.times[p]?.[word] ?? paraStart(w, p), word, depth })
+    lastT = w.times[p]?.[word] ?? paraStart(w, p)
+    out.push({ bullet: b, t: lastT, word, depth })
     b.children.forEach((c) => walk(c, depth + 1))
   }
   bullets.forEach((b) => walk(b, 0))

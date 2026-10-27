@@ -213,7 +213,7 @@ each item with its transcript words; click = seek, hover = words marked in the t
 Two small additions to `src/labs/page/api.js` (marked `// added by mochi-candidates`):
 
 ```
-LABS.notes() → [{ para, time, end, t, text, quote, category: 'general'|'mochi', resolved }]   the user's notes as the
+LABS.notes() → [{ id, para, time, end, t, text, quote, category: 'general'|'mochi', resolved }]   the user's notes as the
                player shows them (read-only copies, by time; time null = a note without a time)
 LABS.ui.copy(text)   text → the system clipboard (the app's own copy message, like right-click → Copy note)
 ```
@@ -478,43 +478,57 @@ LABS.transcript.addInlineCard(p, w, node) → { el, remove() } | null
 
 The `notes-view` experiment (player, on by default; `experiments/notes-view/`, details in its `GUIDE.md`): a
 **Transcript | Notes** switch at the top left of the transcript column (⇧T). Notes = the video part by part (chapters,
-else ~5-minute windows on paragraph boundaries); each part has 🤖 AI notes in the user's notes format (`claude -p`, one
-part at a time, notes-format.md read fresh each run; every bullet carries its source paragraph, so it plays on click
-and lights up during playback), the part's slides (from `slides.json`), the user's 💬 transcript notes (read-only
-mirror) and a 🧑 Yasin editor (the docs app's Milkdown Crepe + its vendored add-ons). Follow / Back to now work as in
-the transcript; switching views lands on the same moment.
+else ~5-minute windows on paragraph boundaries). Each part is ONE editor (the docs app's Milkdown Crepe + its vendored
+add-ons) holding the 🤖 AI notes in the user's notes format (`claude -p`, one part at a time, notes-format.md read fresh
+each run), the part's slides (from `slides.json`) and the user's own words — typed or pasted text is highlighted
+automatically and stored as `==…==`; AI bullets can be reworded, merged, split or deleted (✎ + "Restore original"
+from the `.notes-ai.json` sidecar). Every AI bullet keeps its source paragraph as a node attribute (`<!-- p:N -->`),
+so it plays on click and lights up during playback whatever its text. Below, the part's 💬 transcript notes
+(read-only mirror). Right-click a bullet or type `/mochi` / `/note` to make a real 💬 transcript note (the player's
+own composer, written to the transcript .md; read-only hint in Labs). Follow / Back to now work as in the transcript;
+switching views lands on the same moment.
 
-### The notes file: `<slug>.notes.md`
+### The notes file: `<slug>.notes.md` (+ `<slug>.notes-ai.json`)
 
-Labs: `labs-cache/<videoId>/<slug>.notes.md` (+ `notes-images/` for pasted images; slide srcs point at `slides/`).
-The same code can write it beside the transcript for the normal app (`notesPath(…, { beside: true })`).
+Labs: `labs-cache/<videoId>/<slug>.notes.md` (+ `notes-images/` for pasted images; slide srcs point at `slides/`;
+the AI's originals in `<slug>.notes-ai.json`). The same code can write it beside the transcript for the normal app
+(`notesPath(…, { beside: true })`).
 
 ```
 # Notes — <video title>
 
 * [12:14](https://www.youtube.com/watch?v=ID&t=734s) Firecracker VMs
-   * Agent runs on its own computer = a Linux box (Firecracker VM) <!-- p:41 -->
-      * Easy to snapshot the machine → shut it down → start it back up <!-- p:42 -->
+   * Agent runs on its own computer ==my own words== = a Linux box (Firecracker VM) <!-- p:41 -->
+      * ==a child I typed==
+      * Easy to snapshot the machine → shut it down → start it back up <!-- p:42 --> <!-- note:k3j9a0b -->
    * ![Slide 12 · 12:20](slides/slide-012.jpg) <!-- slide:12 -->
-   * Yasin:
-      * this is why always-on agents are cheap to pause
+   * ==my own bullet==
 ```
 
-Bullets only (one optional H1), 3-space indents; a part = `* [m:ss](url&t=Ns) Title`; AI bullets end with
-`<!-- p:N -->` (a child without one inherits it), slides with `<!-- slide:N -->`; the user's notes are the children of
-`* Yasin:`; any other bullet under a part is kept verbatim. Every write: `withFileLock` + `atomicWrite`, read fresh.
-Regenerating AI notes replaces only that part's AI bullets; slides.json changes replace only slide bullets; `Yasin:`
-is never touched (unit tests: `notesView.test.ts`). Pre-generated with `claude` logged out (prompts dumped, answered
-by hand, run through the real validator: `tool.ts prompts | apply | check`): Stanford CS146S (L1OBRtfPS34, 10 parts,
-410 bullets) and the Flying Tesla episode (dthaDyttHns, 15 parts, 1,099 bullets), in the real Labs cache.
+Bullets only (one optional H1), 3-space indents; a part = `* [m:ss](url&t=Ns) Title`; `<!-- p:N -->` = the paragraph
+a bullet follows; no marker = the user's own bullet; `==…==` = the user's words; `<!-- note:<id> -->` = sent as a 💬
+transcript note; slides end with `<!-- slide:N -->`. The first version's `* Yasin:` subtree (the separate editor) is
+legacy: still read, shown inline at the end of its part and written in the inline form on the next save. Every write:
+`withFileLock` + `atomicWrite`, read fresh. Regenerating a part keeps every bullet the user touched (and the AI bullets
+of any paragraph where they edited one) and re-attaches them by `p:N`; "Write missing" skips touched parts; slides.json
+changes replace only slide bullets (unit tests: `notesView.test.ts`). Pre-generated with `claude` logged out (prompts
+dumped, answered by hand, run through the real validator: `tool.ts prompts | apply | check`): Stanford CS146S
+(L1OBRtfPS34, 10 parts, 410 bullets) and the Flying Tesla episode (dthaDyttHns, 15 parts, 1,099 bullets), in the real
+Labs cache; both round-trip through the editors byte-identically.
 
 Shared-file edits (each commented `// added by notes-view`):
 
 ```
 LABS.transcript.setFollow(on)   Follow on / off, exactly like the Follow button / F (a view over the transcript turns it
                                 off when the user scrolls it, and follows the video while it is on)
+LABS.composeNote({ host, para, time, end?, quote?, words?, category, text?, onSaved(notes), onClose() }) → bool
+                                the player's own note composer (General / 🃏 Mochi pills, ×, Enter saves through the
+                                normal locked note write; Labs shows its read-only hint) opened inside `host`
+LABS.notes()                    each note now also has its `id` (core/notes.ts)
 ```
-- `src/labs/page/api.js` — `setFollow`.
+- `src/labs/page/api.js` — `setFollow`, `composeNote`, `id` in `notes()`.
+- `src/main/player.html` — `openComposer(sel, edit, opts)`: optional `opts` = `{ host, para, time, category, text,
+  onSaved, onClose }` (no opts = exactly as before); `FA_INTERNAL.openComposer`.
 - `electron.vite.config.ts` — the `iife` plugin: `import x from './entry.ts?iife'` → `{ js, css }`, the file bundled
   for the browser by esbuild (one minified IIFE; `*.css?inline` → a string). notes-view's `main.ts` serves its Milkdown
   bundle with it (`/labs/x/notes-view/view.js` + `view.css`), loaded by `player.js` only the first time Notes is shown.

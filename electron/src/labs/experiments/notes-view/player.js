@@ -18,7 +18,7 @@
     'body.nv-notes-on .rwrap > .tools { display: none; }',
   ].join('\n'));
   var bT = el('button', { title: 'The transcript (⇧T: switch)' }, ['Transcript']);
-  var bN = el('button', { title: 'Notes part by part: 🤖 AI notes, slides, your 💬 notes, your own 🧑 notes (⇧T: switch)' }, ['Notes']);
+  var bN = el('button', { title: 'Notes part by part: 🤖 AI notes you can type into, slides, your 💬 notes (⇧T: switch)' }, ['Notes']);
   var tg = el('div', { class: 'nv-toggle' }, [bT, bN]);
   wrap.appendChild(tg);
 

@@ -116,6 +116,8 @@ export function validateNotes(answer: string, s: ViewSection): NotesValidation {
         p = q
       }
       for (const prob of textProblems(t)) violations.push(`${prob}: "${t.slice(0, 60)}"`)
+      // `==` would read as Yasin's words (the notes file's `==…==`): an AI text never has them
+      t = t.replace(/=(?==)|(?<==)=/g, '\\=')
       t = t.replace(/\*\*([^*]+)\*\*/g, '$1').replace(/__([^_]+)__/g, '$1').replace(/\[\[\s*mochi[^\]]*\]\]/gi, '').replace(/#mochi\b/gi, '').replace(/\s{2,}/g, ' ').trim()
       cited.add(p)
       return { text: t, p, children: conv(n.children, p) }

@@ -2,11 +2,15 @@ import { describe, expect, it } from 'vitest'
 import type { Words } from '../../analysis/words'
 import { buildNotesPrompt, InvalidNotes, validateNotes } from './aiNotes'
 import {
-  aiOf, ensureSections, formatProblems, normalizeYasinMarkdown, parseNotes, serializeNotes, setAiNotes, setSlides, setYasin, yasinOf,
+  assignOriginals, bulletsOf, editorPart, ensureOriginals, ensureSections, formatProblems, isEdited, markedOf, originalsFromSection, parseNotes,
+  partTouched, restoreOriginal, serializeNotes, setAiNotes, setPart, setSlides, stripUser, unmarkUser, userSpans, wrapUser,
+  type Bullet, type NotesDoc, type Originals,
 } from './notesFile'
 import { anchorWord, computeSections, timeBullets, type ViewSection } from './sections'
+import { noteTarget, noteText } from './noteTarget'
 
-const FILE = `# Notes — How always-on agents work
+/** The first version's file: AI bullets, a slide, and a separate `Yasin:` subtree. */
+const LEGACY = `# Notes — How always-on agents work
 
 * [0:00](https://www.youtube.com/watch?v=L1OBRtfPS34&t=0s) Introduction to always-on agents
    * Always-on agents = agents that keep running without you <!-- p:0 -->
@@ -20,76 +24,282 @@ const FILE = `# Notes — How always-on agents work
       * ![paste-1|400](notes-images/paste-1.png)
 `
 
-const paraTime = (p: number) => [0, 10, 20][p] ?? p * 18   // P41 → 738, P42 → 756
+/** The inline format: Yasin's words inside AI bullets, his own bullets, a bullet sent as a 💬 note. */
+const FILE = `# Notes — How always-on agents work
 
-describe('notes file', () => {
-  it('parses sections, AI bullets with paragraph ids, slides and the Yasin subtree', () => {
+* [0:00](https://www.youtube.com/watch?v=L1OBRtfPS34&t=0s) Introduction to always-on agents
+   * Always-on agents = agents that keep running without you <!-- p:0 -->
+* [12:14](https://www.youtube.com/watch?v=L1OBRtfPS34&t=734s) Firecracker VMs
+   * Agent runs on its own computer ==my own words== = a Linux box (Firecracker VM) <!-- p:41 -->
+      * ==a child I typed==
+      * Easy to snapshot the machine → shut it down → start it back up <!-- p:42 --> <!-- note:k3j9a0b -->
+   * ![Slide 12 · 12:20](slides/slide-012.jpg) <!-- slide:12 -->
+   * ==this is why always-on agents are cheap to pause==
+      * ![paste-1|400](notes-images/paste-1.png)
+`
+
+const paraTime = (p: number) => [0, 10, 20][p] ?? p * 18   // P41 → 738, P42 → 756, P43 → 774
+const B = (text: string, p: number | null, children: Bullet[] = []): Bullet => ({ text, p, children })
+/** Every `==…==` text of a doc, sorted (to check "each exactly once"). */
+const spansOf = (d: NotesDoc) => d.sections.flatMap((s) => serializeNotes({ h1: null, head: [], sections: [s] })).flatMap(userSpans).sort()
+
+describe('notes file: the inline format', () => {
+  it('parses AI bullets with Yasin\'s words, his own bullets, note markers and slides', () => {
     const d = parseNotes(FILE)
     expect(d.h1).toBe('Notes — How always-on agents work')
-    expect(d.sections.map((s) => [s.t, s.title])).toEqual([[0, 'Introduction to always-on agents'], [734, 'Firecracker VMs']])
     const s = d.sections[1]
-    expect(aiOf(s)).toEqual([{ text: 'Agent runs on its own computer = a Linux box (Firecracker VM)', p: 41, children: [
-      { text: 'Easy to snapshot the machine → shut it down → start it back up', p: 42, children: [] }] }])
-    expect(s.items[1]).toMatchObject({ kind: 'slide', n: 12, src: 'slides/slide-012.jpg', t: 740, alt: 'Slide 12 · 12:20' })
-    expect(yasinOf(s)).toBe('* this is why always-on agents are cheap to pause\n   * nested thought\n* ![paste-1|400](notes-images/paste-1.png)')
+    expect(s.items.map((i) => i.kind)).toEqual(['bullet', 'slide', 'bullet'])
+    const [ai, mine] = bulletsOf(s)
+    expect(ai).toMatchObject({ text: 'Agent runs on its own computer ==my own words== = a Linux box (Firecracker VM)', p: 41 })
+    expect(ai.children[0]).toEqual({ text: '==a child I typed==', p: null, children: [] })
+    expect(ai.children[1]).toEqual({ text: 'Easy to snapshot the machine → shut it down → start it back up', p: 42, children: [], notes: ['k3j9a0b'] })
+    expect(mine).toMatchObject({ text: '==this is why always-on agents are cheap to pause==', p: null, children: [{ text: '![paste-1|400](notes-images/paste-1.png)', p: null }] })
+    expect(s.items[1]).toMatchObject({ kind: 'slide', n: 12, src: 'slides/slide-012.jpg', t: 740 })
+    expect(userSpans(ai.text)).toEqual(['my own words'])
+    expect(stripUser(ai.text)).toBe('Agent runs on its own computer = a Linux box (Firecracker VM)')
+    expect(unmarkUser(ai.text)).toBe('Agent runs on its own computer my own words = a Linux box (Firecracker VM)')
   })
 
-  it('round-trips byte for byte', () => {
+  it('round-trips byte for byte (new format and legacy)', () => {
     expect(serializeNotes(parseNotes(FILE))).toBe(FILE)
-    const d = parseNotes(FILE)
-    expect(parseNotes(serializeNotes(d))).toEqual(d)
+    expect(serializeNotes(parseNotes(LEGACY))).toBe(LEGACY)
+    expect(parseNotes(serializeNotes(parseNotes(FILE)))).toEqual(parseNotes(FILE))
   })
 
-  it('reads other indentation and keeps hand-written bullets verbatim', () => {
-    const odd = '* [1:00](https://www.youtube.com/watch?v=x&t=60s) A\n  - my own line\n    - its child\n  * Yasin:\n    * hi\n'
-    const d = parseNotes(odd)
-    expect(d.sections[0].items[0]).toEqual({ kind: 'other', lines: ['- my own line', '   - its child'] })
-    expect(yasinOf(d.sections[0])).toBe('* hi')
-    const out = serializeNotes(d)
-    expect(out).toBe('* [1:00](https://www.youtube.com/watch?v=x&t=60s) A\n   - my own line\n      - its child\n   * Yasin:\n      * hi\n')
+  it('reads `==` like the docs app: exactly two, no space inside the ends, escapes respected', () => {
+    expect(userSpans('a ==b c== d ==e==')).toEqual(['b c', 'e'])
+    expect(userSpans('x == y, a ==b ==')).toEqual([])
+    expect(userSpans('\\==no== ===three===')).toEqual([])
+    expect(userSpans('==a = b==')).toEqual(['a = b'])
+    expect(wrapUser('plain words ![i|400](notes-images/i.png) more')).toBe('==plain words== ![i|400](notes-images/i.png) ==more==')
+    expect(wrapUser('a == b')).toBe('==a \\=\\= b==')
+    expect(userSpans(wrapUser('a == b'))).toEqual(['a \\=\\= b'])
+  })
+
+  it('reads other indentation and markers, written back canonically', () => {
+    const odd = '* [1:00](https://www.youtube.com/watch?v=x&t=60s) A\n  - my own line\n    - its child\n'
+    const out = serializeNotes(parseNotes(odd))
+    expect(out).toBe('* [1:00](https://www.youtube.com/watch?v=x&t=60s) A\n   * my own line\n      * its child\n')
     expect(serializeNotes(parseNotes(out))).toBe(out)
   })
 
-  it('regenerating AI notes keeps the Yasin notes and slides untouched', () => {
+  it('the editor\'s markdown: transport fields dropped, a marker anywhere goes to the end, split / merge keep markers', () => {
     const d = parseNotes(FILE)
-    const yasinBefore = yasinOf(d.sections[1])
-    setAiNotes(d, 734, [{ text: 'New first bullet', p: 41, children: [] }, { text: 'Later bullet', p: 43, children: [] }], paraTime)
+    // typed after the marker, split (both halves keep p:42), merged (the first marker stays, the second is gone)
+    setPart(d, 734, [
+      '* Agent runs on its own computer <!-- p:41 t:738.5 o:0 --> ==typed after==',
+      '  * Easy to snapshot the machine <!-- p:42 t:756 o:1 -->',
+      '  * → shut it down → start it back up <!-- p:42 t:756 o:1 -->',
+      '* Merged first half and second half <!-- p:43 t:774 o:2 -->',
+      '* <br />',
+      '* ![Slide 12 · 12:20](slides/slide-012.jpg) <!-- slide:12 t:740 -->',
+      '',
+    ].join('\n'))
+    expect(serializeNotes(d).split('\n').slice(5).join('\n')).toBe([
+      '   * Agent runs on its own computer ==typed after== <!-- p:41 -->',
+      '      * Easy to snapshot the machine <!-- p:42 -->',
+      '      * → shut it down → start it back up <!-- p:42 -->',
+      '   * Merged first half and second half <!-- p:43 -->',
+      '   * ![Slide 12 · 12:20](slides/slide-012.jpg) <!-- slide:12 -->',
+      '',
+    ].join('\n'))
+    // a split bullet: the first half keeps the original's slot, the second half has none (edited)
     const s = d.sections[1]
-    expect(yasinOf(s)).toBe(yasinBefore)
-    expect(s.items.map((i) => i.kind)).toEqual(['ai', 'slide', 'ai', 'yasin'])   // the slide (12:20) sits by time
-    expect(serializeNotes(d)).toContain('   * Yasin:\n      * this is why always-on agents are cheap to pause\n         * nested thought')
-    // other sections untouched
-    expect(aiOf(d.sections[0])[0].text).toBe('Always-on agents = agents that keep running without you')
+    const a = assignOriginals(bulletsOf(s), { 42: ['Easy to snapshot the machine → shut it down → start it back up'] })
+    const [h1, h2] = bulletsOf(s)[0].children
+    expect(a.get(h1)?.index).toBe(0)
+    expect(a.get(h2)).toBeNull()
+    expect(isEdited(h1, a.get(h1)) && isEdited(h2, a.get(h2))).toBe(true)
   })
 
-  it('refreshing slides moves them by time and never touches Yasin', () => {
+  it('the editor\'s markdown keeps the AI\'s bytes: block-like starts escaped there, taken out again on save', () => {
+    const d = parseNotes('* [0:00](u&t=0s) A\n   * 1) Copy-pasting code <!-- p:4 -->\n   * = loading up Q&A <!-- p:4 -->\n   * - a dash, # hash <!-- p:4 -->\n')
+    const ed = editorPart(d.sections[0], originalsFromSection(d.sections[0]), () => null)
+    expect(ed.md).toBe('* 1\\) Copy-pasting code <!-- p:4 o:0 -->\n* = loading up Q&A <!-- p:4 o:1 -->\n* \\- a dash, # hash <!-- p:4 o:2 -->')
+    const before = serializeNotes(d)
+    // what the editor writes back (it escapes & and a leading =)
+    setPart(d, 0, '* 1\\) Copy-pasting code <!-- p:4 -->\n* \\= loading up Q\\&A <!-- p:4 -->\n* \\- a dash, # hash <!-- p:4 -->\n\n<br />\n')
+    expect(serializeNotes(d)).toBe(before)
+  })
+
+  it('the editor\'s view of a part: t / o fields, originals list, legacy Yasin notes inline', () => {
+    const d = parseNotes(LEGACY)
+    const s = d.sections[1]
+    const ed = editorPart(s, originalsFromSection(s), (b) => (b.p === 41 ? 738 : null))
+    expect(ed.md).toBe([
+      '* Agent runs on its own computer = a Linux box (Firecracker VM) <!-- p:41 t:738 o:0 -->',
+      '   * Easy to snapshot the machine → shut it down → start it back up <!-- p:42 o:1 -->',
+      '* ![Slide 12 · 12:20](slides/slide-012.jpg) <!-- slide:12 t:740 -->',
+      '* ==this is why always-on agents are cheap to pause==',
+      '   * ==nested thought==',
+      '* ![paste-1|400](notes-images/paste-1.png)',
+    ].join('\n'))
+    expect(ed.orig).toEqual([{ p: 41, text: 'Agent runs on its own computer = a Linux box (Firecracker VM)' }, { p: 42, text: 'Easy to snapshot the machine → shut it down → start it back up' }])
+    expect(s.items.some((i) => i.kind === 'yasin')).toBe(true)   // editorPart never changes the doc
+  })
+
+  it('old Yasin: subtree → written inline on the next save, never lost', () => {
+    const d = parseNotes(LEGACY)
+    const s = d.sections[1]
+    setPart(d, 734, editorPart(s, originalsFromSection(s), () => null).md)
+    const out = serializeNotes(d)
+    expect(out).not.toContain('Yasin:')
+    expect(out).toContain('   * ==this is why always-on agents are cheap to pause==\n      * ==nested thought==\n   * ![paste-1|400](notes-images/paste-1.png)\n')
+    expect(out).toContain('   * Agent runs on its own computer = a Linux box (Firecracker VM) <!-- p:41 -->\n')
+  })
+
+  it('touched parts: Yasin\'s bullets, his words, edited AI bullets, notes sent, legacy, lines under a slide', () => {
+    const d = parseNotes(FILE)
+    expect(partTouched(d.sections[0])).toBe(false)
+    expect(partTouched(d.sections[1])).toBe(true)
+    const legacy = parseNotes(LEGACY)
+    expect(partTouched(legacy.sections[1])).toBe(true)
+    const plain = parseNotes('* [0:00](u&t=0s) A\n   * one <!-- p:0 -->\n')
+    expect(partTouched(plain.sections[0], { 0: ['one'] })).toBe(false)
+    expect(partTouched(plain.sections[0], { 0: ['the AI wrote this'] })).toBe(true)   // reworded
+    expect(partTouched(parseNotes('* [0:00](u&t=0s) A\n   * one <!-- p:0 --> <!-- note:abc1234 -->\n').sections[0], { 0: ['one'] })).toBe(true)
+    expect(partTouched(parseNotes('* [0:00](u&t=0s) A\n   * ![s](slides/s.jpg) <!-- slide:1 -->\n      * my line\n').sections[0])).toBe(true)
+    expect(partTouched(parseNotes('* [0:00](u&t=0s) A\n   * escaped snake\\_case <!-- p:0 -->\n').sections[0], { 0: ['escaped snake_case'] })).toBe(false)
+  })
+
+  it('old files with no sidecar: the current AI bullets without == are the originals', () => {
+    const d = parseNotes(FILE)
+    const o: Originals = { version: 1, parts: {} }
+    expect(ensureOriginals(d, o)).toBe(true)
+    expect(o.parts['0']).toEqual({ 0: ['Always-on agents = agents that keep running without you'] })
+    expect(o.parts['734']).toEqual({ 42: ['Easy to snapshot the machine → shut it down → start it back up'] })   // p:41 has == → none
+    expect(ensureOriginals(d, o)).toBe(false)
+  })
+
+  it('restore original: the AI text again, Yasin\'s words in it gone', () => {
+    const d = parseNotes('* [0:00](u&t=0s) A\n   * my reworded ==and typed== text <!-- p:0 -->\n')
+    const b = bulletsOf(d.sections[0])[0]
+    const a = assignOriginals([b], { 0: ['the AI text'] }).get(b)!
+    expect(isEdited(b, a)).toBe(true)
+    restoreOriginal(b, a)
+    expect(isEdited(b, a)).toBe(false)
+    expect(serializeNotes(d)).toBe('* [0:00](u&t=0s) A\n   * the AI text <!-- p:0 -->\n')
+  })
+})
+
+describe('regenerating AI notes', () => {
+  const fresh = (): Bullet[] => [
+    B('NEW forty-one', 41, [B('NEW forty-two', 42)]),
+    B('NEW forty-three', 43),
+  ]
+
+  it('an untouched part is simply replaced; the originals are the new texts', () => {
+    const d = parseNotes('* [12:14](u&t=734s) P\n   * old 41 <!-- p:41 -->\n   * old 43 <!-- p:43 -->\n')
+    const o = setAiNotes(d, 734, fresh(), paraTime, { 41: ['old 41'], 43: ['old 43'] })
+    expect(serializeNotes(d)).toBe('* [12:14](u&t=734s) P\n   * NEW forty-one <!-- p:41 -->\n      * NEW forty-two <!-- p:42 -->\n   * NEW forty-three <!-- p:43 -->\n')
+    expect(o).toEqual({ 41: ['NEW forty-one'], 42: ['NEW forty-two'], 43: ['NEW forty-three'] })
+  })
+
+  it('keeps edited bullets byte-identically, re-attaches Yasin\'s bullets by p:N, keeps every == once', () => {
+    const before = [
+      '* [12:14](u&t=734s) P',
+      '   * old 41 <!-- p:41 -->',
+      '      * ==first child of 41==',                       // child of an untouched AI bullet → child of the new p:41
+      '      * old 42 <!-- p:42 -->',
+      '   * ==top-level after 41==',                         // after the new p:41 (its previous sibling's paragraph)
+      '   * Yasin REWORDED this ==and typed== <!-- p:43 -->',   // edited → kept as is; p:43 pinned (no NEW forty-three)
+      '      * ==under the edited one==',
+      '   * old 44 <!-- p:44 -->',
+      '   * ==after 44, which is gone==',                    // p:44 has no new bullet → nearest earlier (43)
+      '',
+    ].join('\n')
+    const d = parseNotes(before)
+    const spans = spansOf(d)
+    const o = setAiNotes(d, 734, fresh(), paraTime, { 41: ['old 41'], 42: ['old 42'], 43: ['the AI 43'], 44: ['old 44'] })
+    const out = serializeNotes(d)
+    expect(out).toBe([
+      '* [12:14](u&t=734s) P',
+      '   * NEW forty-one <!-- p:41 -->',
+      '      * ==first child of 41==',
+      '      * NEW forty-two <!-- p:42 -->',
+      '   * ==top-level after 41==',
+      '   * Yasin REWORDED this ==and typed== <!-- p:43 -->',
+      '      * ==under the edited one==',
+      '   * ==after 44, which is gone==',
+      '',
+    ].join('\n'))
+    expect(out).toContain('   * Yasin REWORDED this ==and typed== <!-- p:43 -->\n')
+    expect(spansOf(d)).toEqual(spans)
+    expect(o).toEqual({ 41: ['NEW forty-one'], 42: ['NEW forty-two'], 43: ['the AI 43'] })
+    // regenerating again changes nothing of Yasin's
+    setAiNotes(d, 734, fresh(), paraTime, o)
+    expect(serializeNotes(d)).toBe(out)
+  })
+
+  it('a legacy Yasin: subtree is kept at the end, as == bullets', () => {
+    const d = parseNotes(LEGACY)
+    setAiNotes(d, 734, fresh(), paraTime)
+    const out = serializeNotes(d)
+    expect(out).not.toContain('Yasin:')
+    expect(out.split('\n').slice(5).join('\n')).toBe([
+      '   * NEW forty-one <!-- p:41 -->',
+      '      * NEW forty-two <!-- p:42 -->',
+      '   * ![Slide 12 · 12:20](slides/slide-012.jpg) <!-- slide:12 -->',
+      '   * NEW forty-three <!-- p:43 -->',
+      '   * ==this is why always-on agents are cheap to pause==',
+      '      * ==nested thought==',
+      '   * ![paste-1|400](notes-images/paste-1.png)',
+      '',
+    ].join('\n'))
+  })
+
+  it('a bullet sent as a 💬 note is kept (its marker with it)', () => {
+    const d = parseNotes('* [12:14](u&t=734s) P\n   * old 41 <!-- p:41 --> <!-- note:abc1234 -->\n')
+    setAiNotes(d, 734, fresh(), paraTime, { 41: ['old 41'] })
+    // p:41 is pinned: its new bullet is not added (its child p:42 moves up)
+    expect(serializeNotes(d)).toBe('* [12:14](u&t=734s) P\n   * old 41 <!-- p:41 --> <!-- note:abc1234 -->\n   * NEW forty-two <!-- p:42 -->\n   * NEW forty-three <!-- p:43 -->\n')
+  })
+
+  it('refreshing slides moves them by time and never touches Yasin\'s bullets', () => {
     const d = parseNotes(FILE)
     setSlides(d, [{ n: 1, t: 5, src: 'slides/slide-001.jpg' }, { n: 12, t: 740, src: 'slides/slide-012.jpg' }], paraTime)
-    expect(d.sections[0].items.map((i) => i.kind)).toEqual(['ai', 'slide'])
+    expect(d.sections[0].items.map((i) => i.kind)).toEqual(['bullet', 'slide'])
     expect(serializeNotes(d)).toContain('* ![Slide 1 · 0:05](slides/slide-001.jpg) <!-- slide:1 -->')
-    expect(yasinOf(d.sections[1])).toContain('cheap to pause')
+    expect(serializeNotes(d)).toContain('   * ==this is why always-on agents are cheap to pause==\n')
+    expect(spansOf(d)).toEqual(spansOf(parseNotes(FILE)))
   })
 
-  it('stores the editor markdown as canonical bullets', () => {
-    expect(normalizeYasinMarkdown('* a\n\n  * b\n* <br />\nplain line\n# head\n')).toBe('* a\n   * b\n* plain line\n* head')
-    const d = parseNotes(FILE)
-    setYasin(d, 734, '- one\n  - two\n')
-    expect(serializeNotes(d)).toContain('   * Yasin:\n      * one\n         * two\n')
-    setYasin(d, 734, '* <br />')
-    expect(serializeNotes(d)).not.toContain('Yasin:')
-  })
-
-  it('ensureSections adds missing sections and keeps orphan ones', () => {
+  it('ensureSections adds missing parts and keeps orphan ones', () => {
     const d = parseNotes(FILE)
     ensureSections(d, [{ t: 0, title: 'Intro', url: 'u0' }, { t: 300, title: 'Middle', url: 'u300' }])
     expect(d.sections.map((s) => s.t)).toEqual([0, 300, 734])
     expect(d.sections[0].title).toBe('Intro')
+    expect(markedOf(d.sections[2]).map((b) => b.p)).toEqual([41, 42])
   })
 
-  it('flags bold, headers and mochi tags in AI bullets', () => {
-    const d = parseNotes('* [0:00](https://www.youtube.com/watch?v=x&t=0s) A\n   * **Bold** idea <!-- p:0 -->\n   * ## Header <!-- p:0 -->\n   * fine = ok <!-- p:0 -->\n')
+  it('flags bold, headers and mochi tags in AI bullets (not in Yasin\'s words)', () => {
+    const d = parseNotes('* [0:00](https://www.youtube.com/watch?v=x&t=0s) A\n   * **Bold** idea <!-- p:0 -->\n   * ## Header <!-- p:0 -->\n   * fine = ok ==**mine**== <!-- p:0 -->\n   * ==**mine too**==\n')
     expect(formatProblems(d)).toEqual(['0:00: bold in "**Bold** idea"', '0:00: header in "## Header"'])
     expect(formatProblems(parseNotes(FILE))).toEqual([])
+  })
+})
+
+describe('a bullet → a 💬 transcript note', () => {
+  const paras = [
+    { words: ['Hello', 'and', 'welcome.'], times: [0, 1, 2] },
+    { words: ['An', 'agent', 'runs', 'on', 'its', 'own', 'computer,', 'a', 'Linux', 'box.'], times: [100, 101, 102, 103, 104, 105, 106, 107, 108, 109] },
+  ]
+
+  it('goes under the bullet\'s paragraph, at its start', () => {
+    expect(noteTarget(paras, 1)).toEqual({ para: 1, time: 100, end: null, quote: null, words: [] })
+    expect(noteTarget(paras, 7).para).toBe(1)   // clamped
+  })
+
+  it('a selection whose words are in the paragraph → range + the transcript\'s exact words as the quote', () => {
+    expect(noteTarget(paras, 1, 'its own computer')).toEqual({ para: 1, time: 104, end: 106, quote: 'its own computer,', words: [[1, 4], [1, 5], [1, 6]] })
+    expect(noteTarget(paras, 1, 'gent runs on its own compu')).toMatchObject({ time: 102, end: 105, quote: 'runs on its own' })   // cut-off ends
+    expect(noteTarget(paras, 1, 'Linux box (Firecracker VM)')).toMatchObject({ quote: null, time: 100 })   // not in the paragraph
+  })
+
+  it('the note text: no /command, no == marks, no markers', () => {
+    expect(noteText('Agent runs ==my words== on a box <!-- p:41 --> /mochi')).toBe('Agent runs my words on a box')
+    expect(noteText('==whole bullet of mine== /note')).toBe('whole bullet of mine')
+    expect(noteText('see [the docs](https://x.y) and snake\\_case')).toBe('see the docs and snake_case')
   })
 })
 
@@ -154,6 +364,12 @@ describe('AI answer validation', () => {
     expect(v.bullets[2].p).toBe(1)
     expect(v.repairs.length).toBeGreaterThanOrEqual(3)
     expect(v.bullets.flatMap((b) => [b.text, ...b.children.map((c) => c.text)]).join(' ')).not.toMatch(/\*\*|#/)
+  })
+
+  it('an AI text never holds `==` (it would read as Yasin\'s words)', () => {
+    const v = validateNotes('* if a == b then <!-- p:0 -->', sec)
+    expect(v.bullets[0].text).toBe('if a \\=\\= b then')
+    expect(userSpans(v.bullets[0].text)).toEqual([])
   })
 
   it('rejects an answer with no bullets', () => {
