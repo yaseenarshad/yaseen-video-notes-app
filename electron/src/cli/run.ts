@@ -7,6 +7,7 @@ import { migrateFolder, migrationText } from '../core/statusMigrate'
 import { decodeSidecar, folderName, parseInfoJSON, wordCount } from '../core/transcript'
 import { AGENT_COMMANDS, AGENT_USAGE, runAgent } from './agent'
 import { ANALYZE_USAGE, analyzeCLI } from '../labs/cli'
+import { SLIDES_USAGE, slidesCLI } from '../labs/experiments/slides/cli' // added by slides
 
 export const MIGRATE_USAGE = `  video-notes migrate-status <folder> [--dry-run]
         Moves a folder of video folders (like learning-log) from the old statuses (1-To-Watch, 2-Watching,
@@ -31,7 +32,8 @@ STATUS MIGRATION:
 ${MIGRATE_USAGE}
 
 LABS (writes only into Labs' own userData; see docs/labs.md):
-${ANALYZE_USAGE}`
+${ANALYZE_USAGE}
+${SLIDES_USAGE}`
 
 const expand = (p: string): string => resolve(p.startsWith('~/') ? homedir() + p.slice(1) : p)
 /** Like Swift's `standardizedFileURL`: /private/tmp → /tmp (only the printed paths). */
@@ -44,7 +46,7 @@ export function flag(args: string[], name: string): string | null {
 
 /** True when the args ask for a CLI mode (no UI). */
 export const isCLI = (args: string[]): boolean =>
-  (AGENT_COMMANDS as readonly string[]).includes(args[0] ?? '') || args[0] === 'migrate-status' || args[0] === 'analyze' || args.includes('--help') || args.includes('-h') || flag(args, '--make') !== null || flag(args, '--format') !== null
+  (AGENT_COMMANDS as readonly string[]).includes(args[0] ?? '') || args[0] === 'migrate-status' || args[0] === 'analyze' || args[0] === 'slides' /* added by slides */ || args.includes('--help') || args.includes('-h') || flag(args, '--make') !== null || flag(args, '--format') !== null
 
 /** Runs a CLI mode and returns the exit code. */
 export async function runCLI(args: string[], out: (s: string) => void = (s) => process.stdout.write(s + '\n'),
@@ -52,6 +54,7 @@ export async function runCLI(args: string[], out: (s: string) => void = (s) => p
   if ((AGENT_COMMANDS as readonly string[]).includes(args[0] ?? '')) return runAgent(args, out, err)
   if (args[0] === 'migrate-status') return migrateCLI(args.slice(1), out, err)
   if (args[0] === 'analyze') return analyzeCLI(args.slice(1), out, err)
+  if (args[0] === 'slides') return slidesCLI(args.slice(1), out, err) // added by slides
   if (args.includes('--help') || args.includes('-h')) { out(USAGE); return 0 }
   const url = flag(args, '--make')
   if (url !== null) {
