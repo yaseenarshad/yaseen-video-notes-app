@@ -39,6 +39,7 @@
       '.bar .labsbtn { border-color: #8c6cf0; padding: 5px 9px; font-size: 13px; }',
       // many experiments add panel tabs: wrap them onto a second row instead of squeezing (emoji over the label) or cutting them off
       '.ptabs { flex-wrap: wrap; } .ptabs button { white-space: nowrap; flex: none; }',
+      '.labs-icard { display: block; user-select: none; -webkit-user-select: none; }',   // added by slides (addInlineCard)
       '.labs-ro { display: inline-block; margin-left: 6px; font: 600 10.5px/1.6 system-ui, sans-serif; color: #6d4bd8; border: 1px solid #8c6cf0; border-radius: 999px; padding: 0 7px; vertical-align: 1px; }',
     ].join('\n'));
 
@@ -270,6 +271,16 @@
         // added by dense-mode: the scrolling transcript column; its parent is position: relative, so floating UI
         // can sit over the transcript (absolute, like the A−/A+ tools).
         scroller: function () { return document.getElementById('scroller'); },
+        // added by slides: a block card inside paragraph p, just before its word w — like a note card (the words stay
+        // one run; no paragraph element is created, so paragraph counting is untouched). Put NO text nodes in it (use
+        // title / CSS attr() labels): a copied selection then never picks it up. → { el, remove() } | null
+        addInlineCard: function (p, w, node) {
+          var we = wordEls[p] && wordEls[p][Math.max(0, Math.min(wordEls[p].length - 1, w || 0))];
+          if (!we || !node) return null;
+          node.classList.add('labs-icard'); node.setAttribute('contenteditable', 'false');
+          we.parentNode.insertBefore(node, we);
+          return { el: node, remove: function () { node.remove(); } };
+        },
       },
       analysis: analysis,
       // added by mochi-candidates: the user's notes as the player shows them (read-only copies, sorted by time)

@@ -428,3 +428,48 @@ LABS.mode
 
 Starting one ends the other: E (or a board ▶ Reel / `#labs=reel`) during sampling or Read mode, ⇧C during Read mode,
 ⇧P during sampling. Inside the reel and Read mode their own key handlers keep the other Labs keys out.
+
+## Additions (slides)
+
+The `slides` experiment (player, on by default; `experiments/slides/`, details in its `GUIDE.md`): finds a talk's
+slides with **plain code (no AI)**, then shows them in four ways — a 🖼 Slides tab, "slides follow along" (I), slide
+thumbnails inside the transcript, and a deck reader with the words said on each slide (⇧I).
+
+**Extraction** (`extract.ts`, run by "🖼 Extract slides" under the video or `video-notes-labs slides <folder> [--force]
+[--no-ocr]`): yt-dlp downloads the 720p video-only stream (`136/247/398/bestvideo[height<=720]`, under the yt-dlp lock,
+429 retried) into `labs-cache/<id>/slides-tmp-…/`; ffmpeg decodes it at 1 frame/s (320×180); `frames.ts` + `deck.ts`
+choose the slides; ffmpeg saves one 720p JPEG per slide; **the video is deleted** (also after an error); macOS Vision
+reads each slide's text (`ocr.swift`, compiled once into `<userData>/labs-tools/`). Cached in
+`labs-cache/<id>/slides.json` + `labs-cache/<id>/slides/slide-NNN.jpg`.
+
+How slides are chosen, in plain words:
+1. **Change detection** — each frame's 80×45 grey thumbnail on a 16×9 grid; two frames differ when ≥ 1.2 % of the cells
+   changed by > 6/255 (a small perceptual hash; noise doesn't count, a new bullet does).
+2. **Speaker camera (picture in picture)** — grid cells that change in > 20 % of consecutive slide frames are masked out.
+3. **Stability** — a picture counts once it stays the same for 2 s; the image is taken ~2 s after it settled.
+4. **Slide vs camera** — flat background, hard text edges, few colours, little soft shading → slide (a speaker box in a
+   corner is fine); otherwise camera; camera stretches never become slides.
+5. **Builds** — the previous slide plus new content (in empty space, title unchanged) = the same slide; one entry, the
+   final (fullest) image, `steps` = when each part appeared.
+6. **Repeats** — the same picture later in the talk = a new entry with `repeatOf`.
+7. **No slides** — slides < 20 % of the video or < 3 pictures → "No slides found".
+
+Results: Stanford CS146S "How always-on agents work" (L1OBRtfPS34, 45 min, slides + speaker box) → 46 slides in ~36 s
+(download 24 MB 8–9 s · look 10–13 s · save 1 s · OCR 13–16 s incl. the one-time compile); "Harness Engineering on
+Rails" (L6-3a_rwLIg, 32 min, slides + camera cuts) → 80 slides (5 build steps grouped, 8 repeats) in ~28 s; the Elon
+Musk interview (AQnwQHMnCrE) → "no slides found" (slides 1 % of the video) in ~13 s.
+
+Shared-file edits (each commented `// added by slides`):
+
+```
+LABS.transcript.addInlineCard(p, w, node) → { el, remove() } | null
+    a block card inside paragraph p, just before its word w — like a note card: the words stay one run, no paragraph
+    element is created. Put NO text nodes in it (title / CSS attr() labels), so a copied selection never picks it up.
+    CSS class labs-icard (display block, not selectable).
+```
+- `src/labs/page/api.js` — `addInlineCard` and its one CSS line.
+- `src/cli/run.ts` — the `slides` command (`experiments/slides/cli.ts`).
+
+| mode | who | while it is on |
+|---|---|---|
+| `slides` | slides follow along / deck reader | ← → (J K Enter Esc in the deck) step slides; the video keeps playing (follow along: small in a corner; the deck: hidden) |
