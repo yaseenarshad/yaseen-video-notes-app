@@ -1,14 +1,19 @@
 // The shell renderer's API (tab bar + New Tab pages), exposed by src/preload/shell.ts as window.fa.
 import type { BoardOrder, DropSpot } from '../core/board'
 import type { FolderEntry } from '../core/folderMaker'
+import type { FolderNode } from '../core/library'
 
-export type { BoardOrder, DropSpot, FolderEntry }
+export type { BoardOrder, DropSpot, FolderEntry, FolderNode }
 
 export type TabKind = 'new' | 'player'
 export interface TabInfo { id: string; kind: TabKind; title: string; tooltip: string }
 export interface ShellState { tabs: TabInfo[]; active: string | null; scale: number }
 
-export type Source = { kind: 'recent' } | { kind: 'inProgress' } | { kind: 'folder'; path: string }
+/**
+ * What the New Tab lists. `folder`: a library or topic folder, Finder-style (only the videos right in it); `all`:
+ * 📚 All videos (every library's videos at any depth, with topic chips).
+ */
+export type Source = { kind: 'recent' } | { kind: 'inProgress' } | { kind: 'all' } | { kind: 'folder'; path: string }
 
 /** Progress of opening / making a folder in a New Tab. */
 export interface WorkEvent { tabId: string; step: 'browse' | 'working' | 'failed'; line?: string; error?: string }
@@ -23,7 +28,12 @@ export interface MenuSpec {
 }
 
 export type LibraryView = 'table' | 'board'
-export interface LauncherInfo { pinned: string[]; outputParent: string; groupByStatus: boolean; collapsedColumns: string[]; home: string }
+export interface LauncherInfo { pinned: string[]; outputParent: string; groupByStatus: boolean; collapsedColumns: string[]; collapsedFolders: string[]; columnWidths: Record<string, number>; home: string }
+
+/** A folder action's answer: the (new) path, or why it did not happen. */
+export type FolderResult = { path: string } | { error: string }
+/** A video moved: from → to (Undo moves `to` back into the folder of `from`); null: it was already there. */
+export type MoveAnswer = { from: string; to: string } | { error: string } | null
 
 /** A followed channel in the 📺 Feed. */
 export interface FeedChannelInfo { id: string; title: string; error: string | null; fetchedAt: string | null; videos: number }
@@ -81,13 +91,27 @@ export interface FaAPI {
   setGroupByStatus(on: boolean): void
   /** Saves the collapsed Board columns (status values, ":none"). */
   setCollapsedColumns(keys: string[]): void
+  /** Saves the Board column widths (px by column key; "<key>:collapsed" for a collapsed strip). */
+  setColumnWidths(widths: Record<string, number>): void
   /** The board order of a parent folder (`.video-notes-board.json`). */
   boardOrder(parent: string): Promise<BoardOrder>
+  /** 📚 All videos: every library's board order, merged column by column. */
+  boardOrderAll(): Promise<BoardOrder>
   /**
    * Moves a card on a folder's board: sets the status first when it changes (locked frontmatter write), then the
    * order. Returns an error message, or null.
    */
   boardMove(folder: string, toStatus: string, spot: DropSpot): Promise<string | null>
+  // the sidebar's folder tree (libraries = pinned folders, and their topic folders)
+  /** One tree per pinned folder: its topic folders, recursively, with video counts (direct `videos`, `total` at any depth). */
+  folderTree(): Promise<FolderNode[]>
+  newFolder(parent: string, name: string): Promise<FolderResult>
+  renameFolder(path: string, name: string): Promise<FolderResult>
+  /** Deletes an EMPTY folder after a confirm. Returns an error message, 'cancel', or null when deleted. */
+  deleteFolder(path: string): Promise<string | null>
+  setCollapsedFolders(paths: string[]): void
+  /** Moves a video folder into a library / topic folder (rename; locked; every saved path follows). */
+  moveVideo(folder: string, destParent: string): Promise<MoveAnswer>
   popup(items: MenuSpec[]): Promise<string | null>
   showInFinder(path: string): void
   // 📺 Feed

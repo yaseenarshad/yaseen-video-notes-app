@@ -321,7 +321,7 @@ background/box-shadow only), so the text never moves under the selection while t
 Each video has a status, stored exactly as yaseen-docs-app stores a Select column, so both apps show the same
 value:
 
-- The column is declared once in the **parent folder's** `.folder.md` (e.g. `learning-log/.folder.md`), with
+- The column is declared once in the **library folder's** `.folder.md` (e.g. `learning-log/.folder.md`), with
   yaseen-docs-app's own default status options, so both apps show the same board:
   ```yaml
   folder_settings:
@@ -339,7 +339,14 @@ value:
   as it is, and no other setting (id, title, views, other columns) is touched. One exception: options that are
   **exactly** the list older versions of this app wrote (`1-To-Watch, 2-Watching, 3-Watched, 4-Carded`, in that
   order) are replaced by the new list when the app writes the folder file (only those lines, under the lock).
-- The value is in the transcript `.md`'s own frontmatter, under the parent folder's `id` (from its `.folder.md`):
+- **Which folder** ("the status folder", `statusFolder` in `core/status.ts`): the **library** the video is in — the
+  nearest pinned sidebar folder above it, e.g. learning-log — even when the video sits in a topic subfolder
+  (`learning-log/AI agents/10-27-x/`). That is how yaseen-docs-app works too: a folder view's rows are the notes at
+  any depth under the folder, keyed by that folder's id. Without a pinned folder (the CLI) it is the nearest folder
+  above whose `.folder.md` declares the status column, else the video's parent (as before topics). So moving a video
+  between topics never changes its status (same key, same value, the file is not even written). A topic folder never
+  gets a `.folder.md` from this app; if the docs app adds one (with its own `id`), it is ignored for the status.
+- The value is in the transcript `.md`'s own frontmatter, under the status folder's `id` (from its `.folder.md`):
   ```yaml
   ---
   id: YAS-398
@@ -348,7 +355,7 @@ value:
       status: 3-In-Progress
   ---
   ```
-  If the parent folder has no `id`, the value is a top-level `status:` key (the docs app's fallback).
+  If the status folder has no `id`, the value is a top-level `status:` key (the docs app's fallback).
 - Edits are line-level: only the status line (and a missing `in:` / folder line) is added or changed; every other
   key keeps its place and quoting. A frontmatter shape the app does not understand (e.g. `in: {…}`) is left alone.
   Both files are written under their lock (`<file>.lock`) with an atomic write.
@@ -357,10 +364,12 @@ value:
   (`core/status.ts` `LEGACY` / `mapStatus`; only when the folder's options have the new value and not the old one).
   A status the app writes is always the new string. To rewrite a whole folder:
   `video-notes migrate-status <folder> [--dry-run]` (`core/statusMigrate.ts`): the `.folder.md` options (only the
-  exact old list) and each transcript's old value (minimal edit through `changeFile`, locked); prints what changed;
+  exact old list) and each transcript's old value (videos in topic folders too) (minimal edit through `changeFile`, locked); prints what changed;
   a second run changes nothing.
-- The status moves by itself only when you **open** a video: an empty / `1-Backlog` / `2-Todo` status becomes
-  `3-In-Progress` (only when the folder's options have `3-In-Progress`). Finishing a video does not change it;
+- A video you **add** (paste a link, or Add to Library from the Feed) starts in `1-Backlog`. The status then moves by
+  itself only when you **watch** it: after about 30 s of real playback in a visible tab, an empty / `1-Backlog` /
+  `2-Todo` status becomes `3-In-Progress` (only when the folder's options have `3-In-Progress`). Just opening a video
+  changes nothing. Finishing a video does not change it;
   `4-Done` is always set by hand (New Tab table: the Status cell, right-click → Set Status, "Group by status" and
   drag a row to another group; or the Board: drag a card to another column, right-click → Set Status).
 
@@ -368,14 +377,16 @@ value:
 
 - A **Board | Table** toggle in the list header. The Board is the default: every New Tab, folder, Recent and In
   progress view opens in it. Table lasts only until another view is chosen (it is not saved). The Board works for
-  a folder (learning-log) and for Recent / In progress.
+  a folder (learning-log, a topic), 📚 All videos and Recent / In progress.
 - One column per status option, in option order, titled without the number ("In progress") with a count; a
   "No status" column comes first when some videos have none (not a drop target). Columns scroll on their own;
   the board scrolls sideways when the window is narrow.
 - A card: the YouTube thumbnail (`https://i.ytimg.com/vi/<id>/mqdefault.jpg`, a plain block when it does not load),
   the title (2 lines), the channel (from the `- channel:` header line), a thin progress bar + "38m left" /
   "Finished", the notes count and the open 🃏 `#mochi` count, and "needs setup" when relevant. Click opens it;
-  right-click: Set Status ▸, Move to Top, Show in Finder, Copy YouTube Link.
+  right-click: Set Status ▸, Move to Top, Move to ▸ (section 6), Show in Finder, Copy YouTube Link. In 📚 All videos a
+  card in a topic folder shows a small topic chip ("AI agents/Evals"); a folder view lists only its own videos, so it
+  has none.
 - Each column header has a collapse chevron. A collapsed column is a narrow strip with its name written vertically
   and its count ("Done 12"); click the strip to expand it. Collapsed columns are saved in settings
   (`collapsedColumns`: status values, `:none` for "No status") and apply to every board view; the other columns
@@ -384,12 +395,16 @@ value:
 - Drag a card to another column to change its status (the locked status write); within a column to reorder.
   A line shows where it goes. The move shows at once; when a write fails a red chip says why and the board
   goes back to what the files say.
-- **Order** (folders only; Recent / In progress keep their own order and do not reorder): a small hidden file in
-  the parent folder, synced with the vault, so every Mac shows the same board:
+- **Order** (folders and 📚 All videos; Recent / In progress keep their own order and do not reorder): a small hidden
+  file in the library folder (the status folder), synced with the vault, so every Mac shows the same board; it covers
+  the library's videos at any depth, and each view shows the same order filtered to its cards — a folder view (the
+  library's own loose videos, a topic's own videos) and All videos alike (moving a video between topics keeps its
+  place). All videos merges the files of the pinned libraries column by column; a move is written to the card's own
+  library's file (`board:orderAll`):
   ```json
   { "order": { "3-In-Progress": ["<videoId>", "…"], "2-Todo": ["…"] } }
   ```
-  `<parent>/.video-notes-board.json` (pretty JSON, atomic write under its lock, only when it changes;
+  `<library>/.video-notes-board.json` (pretty JSON, atomic write under its lock, only when it changes;
   `core/board.ts` is the logic, `core/boardFile.ts` the file). A column shows the ids in its list first, then the
   other cards newest first. Moving a card takes it out of every list and puts it at the drop spot; dropping it
   below cards that are not in the list yet adds those above it, so they stay put. Ids of folders that are gone,
@@ -402,11 +417,50 @@ value:
   "shell", React); each open video is its own web view laid over the shell below the strip. Only the visible
   tab plays; switching pauses the one you leave, and a hidden tab that starts playing (a restored tab's resume
   seek starts the YouTube player) is paused at once. Open tabs come back on the next launch.
-- The New Tab page is a Finder-style browser: sidebar (Recent, In progress, pinned folders like learning-log,
-  Add Folder…, Other Folder…), a paste-a-link field with the destination folder chip, and a sortable table
+- The New Tab page is a Finder-style browser: sidebar (Recent, In progress, 📚 All videos, the folder tree of pinned
+  folders like learning-log, Add Folder…, Other Folder…), a paste-a-link field with the destination folder chip, and a sortable table
   (thumbnail, Title, Date, Progress, Status, Notes), optionally grouped by status, or a Kanban board (section 5).
   Enter or double-click opens a row; a click opens a card.
 - The sidebar's **📺 Feed** (above the Library, with a count badge) is described in [section 7](#7-the--feed).
+
+### Topic folders (the sidebar's folder tree)
+
+A library (a pinned folder like learning-log) holds video folders and **topic folders** (`learning-log/AI agents/`),
+which hold more videos and topics. Code: `core/library.ts` (unit-tested in `library.test.ts`), `renderer/FolderTree.tsx`.
+
+- **Video or topic?** A video folder has `.follow-along.json` or a transcript `.md` with a YouTube `- url:` line. A
+  topic folder is any other folder that is not hidden, not a lock, not a resource folder (`assets`, `media`,
+  `attachments`, `images`, `files`, …), and either has no visible `.md` of its own (a new empty folder, `jev/`) or holds
+  a video / topic folder. So a folder of notes from another tool (`10-02-poetry/` with its `.md` and `media/`) is
+  neither and is left out. Symlinks are not followed.
+- **The tree**: each library, expandable to its topics recursively. Collapsed folders are saved (`collapsedFolders`
+  in settings). It works like **Finder**: clicking a folder lists only the videos **right in it** (Board or Table) —
+  the **library** shows its loose videos (the pile still to sort into topics), a **topic** only its own (a subtopic's
+  show when the subtopic is clicked) (`listFolder`). Each folder's count is those direct videos; its tooltip adds the
+  total with subfolders ("2 videos here · 5 with subfolders"). A folder with no videos of its own says "No videos here
+  yet — drag videos onto this folder, or paste a link with this folder selected." Selecting a folder also makes it the
+  destination of a pasted link / Feed "Add to Library"; the "→ folder" chip lists the topics too (indented).
+- **📚 All videos** (sidebar, next to Recent / In progress) lists every video of every pinned library at any depth,
+  newest first, each card / row in a topic with a small topic chip relative to its library (`listLibrary`). In progress
+  also covers every depth.
+- **Right-click a folder**: New Folder… (an inline name field in the tree; a plain directory, no `.folder.md`),
+  Rename… (inline; topics only; never over an existing name), Show in Finder, Delete (topics only, **only when empty**
+  — a lone `.DS_Store` does not count — after a confirm). A library itself has Remove from Sidebar instead.
+- **Moving a video**: drag a Board card or a Table row onto a folder in the tree (it highlights), or right-click →
+  **Move to ▸** (the library's folders). The whole video folder is moved with one `rename` (same disk; across disks:
+  copy, compare every byte, then delete the original), **under the transcript's file lock**, so an agent's
+  `video-notes` write never lands mid-move (an agent that was waiting gets an error and must use the new path). Then
+  it checks that the `.md` is at the new place and the old folder is gone. A folder of that name already there →
+  "There is already a folder named … Nothing was moved." (never overwrites). The same folder → nothing. Another
+  library → refused (its status belongs to its library). A toast "Moved to AI agents · Undo" (Undo moves it back). A
+  card moved out of the folder being viewed leaves that board at once (a failed move reloads it back); Undo brings
+  it back.
+- **What follows a move** (or a topic rename): Recent, the open tabs list, pinned folders, the destination folder and
+  collapsed tree folders in settings (`Settings.relocate`); an open tab playing that video is re-pointed in place — its
+  notes, position, status and `data.json` use the new paths at once, the page keeps playing (`PlayerSession.relocate`);
+  the Feed's "In Library" lookup. The status and the board order need nothing (library key, video id).
+- **Adding** a video while a topic is the destination makes its folder there (Backlog, keyed to the library). If the
+  same video is anywhere else in the library already, that folder is opened instead of making a second one.
 - Settings live in `~/Library/Application Support/Yaseen Video Notes/settings.json` (written atomically): speed,
   favorite/last speed, transcript text size, focus mode, divider position, side-panel tab, app zoom (`uiScale`),
   pinned folders, Recent, open tabs, window size. On the first launch under the new name, when that file does
@@ -491,7 +545,7 @@ most channels most of the time (the playlist feeds always), even for big old cha
 **The view.** Rows newest first across channels: thumbnail (`i.ytimg.com/vi/<id>/mqdefault.jpg`; the shell's CSP
 allows that host), title, channel, "2 days ago", duration. A dot marks videos newer than the time before last that the
 Feed was opened. Channel filter (menu, or click a chip / a row's channel name). **Add to Library**, **Hide** (for
-good, in `feed-hidden.json`), **In Library** (matched by video id against the pinned folders and Recent; click opens
+good, in `feed-hidden.json`), **In Library** (matched by video id against the pinned folders at any depth and Recent; click opens
 it). The sidebar badge counts visible videos published after the Feed was last opened, not in the Library. Unfollow
 is deliberate: right-click a channel chip → Unfollow… → type `unfollow` (the button stays disabled until then; Esc
 cancels). Right-click a Library row → Follow this channel (resolved from the video's link).

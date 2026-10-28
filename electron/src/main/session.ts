@@ -23,6 +23,8 @@ const HOME_JS = `window.homeTracker = (${homeTracker.toString()});\n`
 const notesForPage = (notes: Note[]): Record<string, unknown>[] => { const now = Date.now(); return notes.map((n) => noteJSON(n, now)) }
 
 const EMBED = /^https:\/\/(www\.)?(youtube\.com|youtube-nocookie\.com)\/embed\//
+/** Seconds of real playback before a video counts as started (status → In progress). */
+const WATCHED_TO_START = 30
 
 export interface SessionOptions {
   preload: string
@@ -40,6 +42,9 @@ export class PlayerSession {
   private server: LocalServer
   private notesCache: { mtime: number; size: number; minute: number; json: string } | null = null
   private lastPos: { t: number; dur: number; home: number | null } | null = null
+  /** Playback ticks (~1 s each) seen while playing in a visible tab, until WATCHED_TO_START. */
+  private watchedTicks = 0
+  private startedWatching = false
   private written: { t: number; at: number } | null = null
   private scan: NodeJS.Timeout | null = null
   private connected = false
@@ -48,7 +53,7 @@ export class PlayerSession {
   visible = false
   closed = false
 
-  private constructor(readonly transcript: TranscriptFolder, opts: SessionOptions) {
+  private constructor(public transcript: TranscriptFolder, opts: SessionOptions) {
     this.sidecar = decodeSidecar(readFileSync(transcript.sidecar, 'utf8'))
     // What the file already says counts as written: opening a video writes nothing.
     const p = readProgress(transcript.folder)
@@ -103,8 +108,8 @@ export class PlayerSession {
     const s = new PlayerSession(t, opts)
     const port = await s.server.start()
     DebugLog.log(`server http://127.0.0.1:${port}/ for ${t.markdown}`)
-    // Opening a video moves an empty / Backlog / Todo status to In progress (finishing never changes it; Done is manual).
-    setImmediate(() => advanceOnOpen(t.folder, t.markdown, DebugLog.log))
+    // Watching a video (WATCHED_TO_START seconds of playback, see received()) moves an empty / Backlog / Todo
+    // status to In progress. Just opening it doesn't, so a freshly added video stays in Backlog. Done is manual.
     void s.view.webContents.loadURL(s.pageURL)
     return s
   }
@@ -139,6 +144,17 @@ export class PlayerSession {
     this.connected = false
     DebugLog.log('reload video (menu)')
     this.view.webContents.reload()
+  }
+
+  /**
+   * The video's folder was moved (to another topic, or its topic was renamed): from now on every read and write
+   * (notes, position, status, data.json) uses the new paths. The page keeps playing; it only talks to this server.
+   */
+  relocate(t: TranscriptFolder): void {
+    if (this.closed) return
+    DebugLog.log(`relocated ${this.transcript.folder} → ${t.folder}`)
+    this.transcript = t
+    this.notesCache = null
   }
 
   /** Runs a page command (window.FA, see player.html). */
@@ -311,6 +327,11 @@ export class PlayerSession {
       this.lastHiddenPause = Date.now()
       DebugLog.log('hidden tab was playing: pause')
       this.run('FA.pause()')
+    }
+    // ~30 s of real playback in a visible tab = started watching → In progress (once per session).
+    if (type === 'tick' && m.paused === false && this.visible && !this.startedWatching && ++this.watchedTicks >= WATCHED_TO_START) {
+      this.startedWatching = true
+      setImmediate(() => advanceOnOpen(this.transcript.folder, this.transcript.markdown, DebugLog.log))
     }
     if ((type === 'tick' || type === 'pos') && typeof m.t === 'number' && m.ok !== false && m.resumed !== false) {
       // "tick" every second; "pos" on pause, after a seek, and every 10 s while playing ("playing": true)

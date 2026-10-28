@@ -1,11 +1,11 @@
-import { readdirSync, readFileSync, statSync } from 'node:fs'
-import { join } from 'node:path'
-import { isLockFile } from './fileLock'
+import { readFileSync, statSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { markdownFile } from './folderMaker'
-import { ensureFolderColumn, folderInfo, FOLDER_FILE, migrateStatus } from './status'
+import { videoFolders } from './library'
+import { ensureFolderColumn, folderInfo, FOLDER_FILE, migrateStatus, statusRootOf } from './status'
 
 /**
- * `video-notes migrate-status <folder>`: moves a parent folder (like learning-log) from the old status options
+ * `video-notes migrate-status <folder>`: moves a library folder (like learning-log; its topic folders too) from the old status options
  * (`1-To-Watch…4-Carded`) to yaseen-docs-app's defaults (`1-Backlog…4-Done`). The `.folder.md` option list is
  * replaced only when it is exactly the old app-written one; each transcript's old value is rewritten to its new
  * one (minimal edit, locked). Safe to run again: a second run changes nothing.
@@ -24,17 +24,17 @@ const isDir = (p: string): boolean => { try { return statSync(p).isDirectory() }
 
 export function migrateFolder(parent: string, dryRun = false): FolderMigration {
   const out: FolderMigration = { parent, options: null, transcripts: [], errors: [], dryRun }
-  const folder = ensureFolderColumnIfOld(parent, dryRun)
+  if (!isDir(parent)) { out.errors.push(`${parent}: not a folder`); return out }
+  // The status folder: the given folder, or the library it is a topic of (the nearest folder above it that
+  // declares the status column). Its videos at any depth (topics too) keep their status there.
+  const root = statusRootOf(parent, [])
+  const folder = ensureFolderColumnIfOld(root, dryRun)
   if (folder) out.options = folder
-  let names: string[] = []
-  try { names = readdirSync(parent).sort() } catch (e) { out.errors.push(`${parent}: ${String(e)}`); return out }
-  for (const n of names) {
-    const d = join(parent, n)
-    if (n.startsWith('.') || isLockFile(n) || !isDir(d)) continue
+  for (const d of videoFolders(parent)) {
     const md = markdownFile(d)
     if (!md) continue
     try {
-      const c = migrateStatus(md, parent, dryRun)
+      const c = migrateStatus(md, statusRootOf(dirname(d), [root]), dryRun)
       if (c) out.transcripts.push({ md, ...c })
     } catch (e) {
       out.errors.push(`${md}: ${e instanceof Error ? e.message : String(e)}`)

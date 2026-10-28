@@ -131,7 +131,8 @@ svg { width: 16px; height: 16px; flex: none; }
 
 .empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: var(--muted); }
 .empty__icon svg { width: 34px; height: 34px; color: var(--faint); }
-.empty__text { font-size: 16px; white-space: pre-line; text-align: center; }
+.empty__text { font-size: 16px; white-space: pre-line; text-align: center; max-width: 460px; padding: 0 16px; }
+.empty__icon .sideitem__emoji { font-size: 30px; width: auto; opacity: .7; }
 
 /* "Getting the captions…" / error card */
 .overlay { position: absolute; inset: 0; z-index: 20; background: rgba(0, 0, 0, .25); display: flex; align-items: center; justify-content: center; }
@@ -203,7 +204,7 @@ svg { width: 16px; height: 16px; flex: none; }
 
 /* ---------- the Kanban board (Board.tsx) ---------- */
 .board { flex: 1; min-height: 0; display: flex; gap: 14px; padding: 4px 20px 18px; overflow-x: auto; overflow-y: hidden; }
-.bcol { flex: 1 1 300px; min-width: 224px; max-width: 560px; min-height: 0; display: flex; flex-direction: column; border-radius: 12px; background: color-mix(in srgb, var(--side) 75%, transparent); border: 1px solid var(--border); }
+.bcol { position: relative; flex: 1 1 300px; min-width: 224px; max-width: 560px; min-height: 0; display: flex; flex-direction: column; border-radius: 12px; background: color-mix(in srgb, var(--side) 75%, transparent); border: 1px solid var(--border); }
 .bcol--none { flex-basis: 240px; min-width: 200px; opacity: .92; }
 .bcol--drop { background: color-mix(in srgb, var(--accent) 8%, var(--side)); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
 .bcol__head { flex: none; display: flex; align-items: center; gap: 8px; padding: 10px 8px 8px 14px; min-height: 44px; }
@@ -254,3 +255,37 @@ svg { width: 16px; height: 16px; flex: none; }
 .bcol--collapsed.bcol--none { flex-basis: 44px; min-width: 44px; }
 .bcol__vtext { writing-mode: vertical-rl; display: flex; align-items: center; gap: 8px; white-space: nowrap; user-select: none; }
 .bcol__vtext .bcol__count { font-variant-numeric: tabular-nums; }
+
+/* ---------- the sidebar's folder tree (FolderTree.tsx): libraries and their topic folders ---------- */
+.tree { display: flex; flex-direction: column; gap: 1px; }
+.tree__row { gap: 5px; padding-right: 8px; user-select: none; }
+.tree__row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.tree__row--drop, .tree__row--drop:hover { background: color-mix(in srgb, var(--accent) 16%, transparent); box-shadow: inset 0 0 0 1.5px var(--accent); }
+.tree__chev { flex: none; width: 16px; height: 16px; display: grid; place-items: center; color: var(--muted); border-radius: 4px; }
+.tree__chev svg { width: 12px; height: 12px; transition: transform .12s; }
+.tree__chev:not(.tree__chev--none):hover { background: var(--hover); }
+.tree__count { margin-left: auto; padding-left: 6px; font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.tree__edit { padding: 2px 8px 2px 0; }
+.tree__editrow { display: flex; align-items: center; gap: 5px; height: 32px; }
+.tree__input { flex: 1; min-width: 0; height: 26px; padding: 0 7px; border-radius: 6px; border: 1.5px solid var(--accent); background: var(--panel); font-size: 14.5px; outline: none; }
+.tree__error { margin: 3px 0 4px 26px; font-size: 12.5px; color: #c0392b; line-height: 1.3; }
+
+/* a video's topic folder, on a board card / table row when it is not right in the listed folder */
+.topicchip { display: inline-block; max-width: 100%; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 500; line-height: 1.5;
+  color: var(--muted); background: color-mix(in srgb, var(--muted) 14%, transparent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; vertical-align: 1px; }
+.td--title .topicchip { margin-left: 8px; max-width: 40%; }
+.bcard__topic { margin-top: 3px; line-height: 1; }
+
+/* "Moved to AI agents · Undo" */
+.movetoast { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); z-index: 61; display: flex; align-items: center; gap: 8px; padding: 8px 10px 8px 16px;
+  border-radius: 999px; background: rgba(0, 0, 0, .82); color: #fff; font: 600 14.5px -apple-system, system-ui; box-shadow: 0 6px 24px rgba(0, 0, 0, .25); }
+.movetoast__dot { opacity: .6; }
+.movetoast__undo { padding: 3px 12px; border-radius: 999px; background: rgba(255, 255, 255, .18); font-weight: 600; }
+.movetoast__undo:hover { background: rgba(255, 255, 255, .3); }
+
+/* Column resize: a handle on the right edge (in the gap between columns); drag to resize, double-click to reset. */
+.bcol__resize { position: absolute; top: 0; right: -9px; width: 12px; height: 100%; cursor: col-resize; z-index: 3; touch-action: none; }
+.bcol__resize::after { content: ""; position: absolute; top: 10px; bottom: 10px; left: 5px; width: 2px; border-radius: 2px; background: transparent; transition: background .12s; }
+.bcol__resize--left { right: auto; left: -9px; }
+.bcol--right-first { margin-left: auto; }
+.bcol__resize:hover::after, .bcol__resize:active::after { background: color-mix(in srgb, var(--accent) 70%, transparent); }

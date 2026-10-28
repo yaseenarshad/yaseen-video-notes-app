@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { homedir } from 'node:os'
+import { dirname, join, resolve } from 'node:path'
 import { atomicWrite } from './atomic'
 import { graphemes, isSwiftDouble, trimWS, trimWSNL } from './text'
 import { changeFile } from './notes'
@@ -9,7 +10,9 @@ import { withFileLock } from './fileLock'
  * Per-video status, stored exactly the way yaseen-docs-app stores a Select column, so both apps
  * show the same value:
  *
- * - The column is declared in the PARENT folder's `.folder.md` (`folder_settings.columns.status`,
+ * - The column is declared in the STATUS FOLDER's `.folder.md` (`statusFolder`: the library folder, e.g.
+ *   learning-log, even for a video in a topic subfolder of it; without a known library, the nearest folder that
+ *   declares the column; else the video's parent) (`folder_settings.columns.status`,
  *   kind select, options `1-Backlog, 2-Todo, 3-In-Progress, 4-Done` — yaseen-docs-app's own default status
  *   options — and `optionSort: manual`).
  * - The value is in the transcript .md's own frontmatter, under that folder's id: `in:` →
@@ -355,9 +358,57 @@ export function setValue(content: string, folderId: string | null, val: string):
 
 const readText = (p: string): string | null => { try { return readFileSync(p, 'utf8') } catch { return null } }
 
-/** The parent folder of a video folder, and what its .folder.md says. */
-export function parentInfo(videoFolder: string): { parent: string; info: FolderInfo } {
-  const parent = dirname(videoFolder)
+// ---------- which folder a video's status belongs to ----------
+
+/**
+ * The library folders (the New Tab sidebar's pinned folders, like learning-log). Set by the app whenever they
+ * change; the CLI leaves it empty. A video can sit in topic subfolders of a library
+ * (`learning-log/AI agents/10-27-x/`): its status still belongs to the library, like a yaseen-docs-app folder view,
+ * whose rows are the notes at ANY depth under the folder.
+ */
+let libraryRoots: string[] = []
+export function setLibraryRoots(roots: readonly string[]): void { libraryRoots = roots.map((r) => resolve(r)) }
+export const getLibraryRoots = (): string[] => [...libraryRoots]
+
+const hasColumn = (dir: string): boolean => folderInfo(readText(join(dir, FOLDER_FILE)) ?? '').options !== null
+
+/** `dir` and its ancestors, nearest first (up to the home folder or the file system root). */
+function ancestorsOrSelf(dir: string): string[] {
+  const out: string[] = []
+  const home = homedir()
+  let d = resolve(dir)
+  for (;;) {
+    out.push(d)
+    const up = dirname(d)
+    if (up === d || d === home) break
+    d = up
+  }
+  return out
+}
+
+/**
+ * The folder whose `.folder.md` holds the status column for things in `dir` (`dir` itself counts): the nearest
+ * library folder (`roots`, default the pinned ones); with none, the nearest folder whose `.folder.md` declares the
+ * status column; else `dir` itself (as before topics existed).
+ */
+export function statusRootOf(dir: string, roots: readonly string[] = libraryRoots): string {
+  const chain = ancestorsOrSelf(dir)
+  const rs = new Set(roots.map((r) => resolve(r)))
+  const pinned = chain.find((d) => rs.has(d))
+  if (pinned) return pinned
+  return chain.find(hasColumn) ?? resolve(dir)
+}
+
+/**
+ * The folder a video's status belongs to (its column in that folder's `.folder.md`, its value at
+ * `in.<that folder's id>.status`): `statusRootOf` its parent. A video moved between topics of one library keeps
+ * the same folder, so the same key and value.
+ */
+export const statusFolder = (videoFolder: string, roots: readonly string[] = libraryRoots): string => statusRootOf(dirname(resolve(videoFolder)), roots)
+
+/** The folder a video's status belongs to (`statusFolder`), and what its .folder.md says. */
+export function parentInfo(videoFolder: string, roots: readonly string[] = libraryRoots): { parent: string; info: FolderInfo } {
+  const parent = statusFolder(videoFolder, roots)
   return { parent, info: folderInfo(readText(join(parent, FOLDER_FILE)) ?? '') }
 }
 
@@ -389,17 +440,32 @@ export function ensureFolderColumn(parent: string, dryRun = false): { info: Fold
   return dryRun ? run() : withFileLock(folderMD, run)
 }
 
-/** Writes a status (an old value is written as its new one): declares the column in the parent's .folder.md if missing, then sets the value in the transcript's frontmatter. Both writes are locked and atomic. */
+/** Writes a status (an old value is written as its new one): declares the column in the status folder's .folder.md (`statusFolder`) if missing, then sets the value in the transcript's frontmatter. Both writes are locked and atomic. */
 export function writeStatus(videoFolder: string, markdown: string, val: string): void {
   if (!existsSync(markdown)) throw new Refused('no transcript .md')
-  const { info } = ensureFolderColumn(dirname(videoFolder))
+  const { info } = ensureFolderColumn(statusFolder(videoFolder))
   const v = mapStatus(val, effectiveOptions(info.options)) ?? val
   // under the transcript's file lock (agents write it too): read fresh, change, atomic write;
   // the file is written anyway, so it gets the current agent guide too (idempotent)
   changeFile(markdown, (text) => setValue(text, info.id, v))
 }
 
-/** Opening a video: an empty / Backlog / Todo status becomes In progress. Returns the new value if written. */
+export const BACKLOG = '1-Backlog'
+
+/** A video just added: an empty status becomes Backlog (when the folder offers it). Returns the new value if written. */
+export function startInBacklog(videoFolder: string, markdown: string, log: (s: string) => void = () => {}): string | null {
+  if (readStatus(videoFolder, markdown) !== null || !statusOptions(videoFolder).includes(BACKLOG)) return null
+  try {
+    writeStatus(videoFolder, markdown, BACKLOG)
+    log(`status - → ${BACKLOG} for ${videoFolder.split('/').pop()} (new video)`)
+    return BACKLOG
+  } catch (e) {
+    log(`could not set status: ${String(e)}`)
+    return null
+  }
+}
+
+/** Watching a video (~30 s of playback): an empty / Backlog / Todo status becomes In progress. Returns the new value if written. */
 export function advanceOnOpen(videoFolder: string, markdown: string, log: (s: string) => void = () => {}): string | null {
   const current = readStatus(videoFolder, markdown)
   const next = openAdvance(current, statusOptions(videoFolder))
@@ -420,7 +486,7 @@ export function advanceOnOpen(videoFolder: string, markdown: string, log: (s: st
  * through `changeFile` (so the agent-guide rules hold). Returns the change, or null when there was nothing to do.
  * `dryRun`: reports without writing.
  */
-export function migrateStatus(mdPath: string, parentFolder: string, dryRun = false): { from: string; to: string } | null {
+export function migrateStatus(mdPath: string, parentFolder: string /* the status folder */, dryRun = false): { from: string; to: string } | null {
   const info = folderInfo(readText(join(parentFolder, FOLDER_FILE)) ?? '')
   const options = effectiveOptions(info.options)
   const plan = (text: string): { from: string; to: string } | null => {

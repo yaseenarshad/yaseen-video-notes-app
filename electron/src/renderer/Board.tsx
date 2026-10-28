@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type DragEvent, type MouseEvent } from 'react'
+import { useMemo, useRef, useState, type CSSProperties, type DragEvent, type MouseEvent } from 'react'
 import { arrangeColumn, cardId, columnLabel, newestFirst, type BoardOrder, type DropSpot } from '../core/board'
 import type { FolderEntry } from '../shared/api'
 
@@ -7,6 +7,34 @@ const NONE = '\u0000none'
 const DRAG_TYPE = 'text/x-follow-along-folder'
 
 export const thumbURL = (id: string): string => `https://i.ytimg.com/vi/${id}/mqdefault.jpg`
+
+/**
+ * Drag image for a video: a small pill (thumbnail + short title) to the lower right of the cursor, instead of the
+ * whole card, so the sidebar folders under the cursor stay visible while dragging.
+ */
+export function setDragPill(e: DragEvent, r: FolderEntry): void {
+  const look = getComputedStyle(e.currentTarget as Element)
+  const wrap = document.createElement('div')   // transparent margin = offset from the cursor
+  wrap.style.cssText = 'position:fixed;top:-1000px;left:-1000px;padding:14px 0 0 18px;pointer-events:none'
+  const pill = document.createElement('div')
+  pill.style.cssText = `display:flex;align-items:center;gap:8px;max-width:240px;padding:5px 10px 5px 5px;border-radius:999px;
+    font:600 13px -apple-system,system-ui,sans-serif;box-shadow:0 4px 14px rgba(0,0,0,.28);
+    background:${look.backgroundColor === 'rgba(0, 0, 0, 0)' ? '#fff' : look.backgroundColor};color:${look.color}`
+  const card = (e.currentTarget as HTMLElement).querySelector('img')
+  if (card && card.complete && card.naturalWidth) {
+    const img = card.cloneNode() as HTMLImageElement
+    img.style.cssText = 'width:44px;height:25px;object-fit:cover;border-radius:5px;flex:none'
+    pill.appendChild(img)
+  }
+  const name = document.createElement('span')
+  name.textContent = r.title.length > 32 ? r.title.slice(0, 31).trimEnd() + '…' : r.title
+  name.style.cssText = 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis'
+  pill.appendChild(name)
+  wrap.appendChild(pill)
+  document.body.appendChild(wrap)
+  e.dataTransfer.setDragImage(wrap, 0, 0)
+  setTimeout(() => wrap.remove(), 0)
+}
 
 /** The furthest of where the playhead was and the 📍 home spot (as in the table). */
 const furthest = (r: FolderEntry): number => (r.progress ? Math.max(r.progress.seconds, r.progress.home ?? r.progress.seconds) : 0)
@@ -50,12 +78,49 @@ interface Props {
   /** Collapsed columns (`collapseKey`). */
   collapsed: ReadonlySet<string>
   onToggleCollapse: (key: string) => void
+  /** Column widths in px (`collapseKey`, or "<key>:collapsed" for a strip); missing = the default flexible width. */
+  widths?: Readonly<Record<string, number>>
+  /** A column edge was dragged (null = double-click: back to the default width). */
+  onResize?: (key: string, width: number | null) => void
 }
+
+const OPEN_W = { min: 200, max: 900 }
+const STRIP_W = { min: 36, max: 240 }
 
 interface DropAt { column: string; index: number }
 
 /** The Kanban board (New Tab → Board). Drag a card to another column to change its status, within one to reorder. */
-export function Board({ rows, options, order, selected, onSelect, onOpen, onMenu, onMove, collapsed, onToggleCollapse }: Props) {
+export function Board({ rows, options, order, selected, onSelect, onOpen, onMenu, onMove, collapsed, onToggleCollapse, widths = {}, onResize }: Props) {
+  /** The width while an edge is being dragged (saved on release). */
+  const [live, setLive] = useState<{ key: string; w: number } | null>(null)
+  const widthOf = (key: string): number | undefined => (live?.key === key ? live.w : widths[key])
+  const sized = (key: string): CSSProperties | undefined => {
+    const w = widthOf(key)
+    return w === undefined ? undefined : { flex: `0 0 ${w}px`, minWidth: w, maxWidth: w }
+  }
+  /** The drag handle on a column's edge (the left edge for strips pinned to the right): drag to resize, double-click to reset. */
+  const edge = (key: string, lim: { min: number; max: number }, left = false) => onResize && (
+    <div className={'bcol__resize' + (left ? ' bcol__resize--left' : '')} role="separator" aria-orientation="vertical" title="Drag to resize · double-click to reset"
+      draggable={false}
+      onClick={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => { e.stopPropagation(); onResize(key, null) }}
+      onPointerDown={(e) => {
+        if (e.button !== 0) return
+        e.preventDefault(); e.stopPropagation()
+        const handle = e.currentTarget
+        const w0 = (handle.parentElement as HTMLElement).getBoundingClientRect().width
+        const x0 = e.clientX
+        let w = w0
+        handle.setPointerCapture(e.pointerId)
+        const move = (ev: PointerEvent) => { w = Math.min(lim.max, Math.max(lim.min, w0 + (left ? x0 - ev.clientX : ev.clientX - x0))); setLive({ key, w }) }
+        const up = () => {
+          handle.removeEventListener('pointermove', move); handle.removeEventListener('pointerup', up); handle.removeEventListener('pointercancel', up)
+          setLive(null)
+          if (Math.abs(w - w0) >= 1) onResize(key, w)
+        }
+        handle.addEventListener('pointermove', move); handle.addEventListener('pointerup', up); handle.addEventListener('pointercancel', up)
+      }} />
+  )
   const columns = useMemo(() => boardColumns(rows, options, order), [rows, options, order])
   const [dragging, setDragging] = useState<string | null>(null)
   const [dropAt, setDropAt] = useState<DropAt | null>(null)
@@ -111,14 +176,20 @@ export function Board({ rows, options, order, selected, onSelect, onOpen, onMenu
     onMove(r, col.key, { top: true }, col.label)
   }
 
+  // collapsed strips after the last open column hug the board's right edge
+  let lastOpen = -1
+  columns.forEach((c, i) => { if (!collapsed.has(collapseKey(c))) lastOpen = i })
+  const pinnedRight = (i: number) => lastOpen >= 0 && i > lastOpen
+
   return (
     <div className="board" onDragEnd={() => { setDragging(null); setDropAt(null); draggingRef.current = null }}>
-      {columns.map((col) => {
+      {columns.map((col, i) => {
         const isDrop = dropAt?.column === col.key
         const ck = collapseKey(col)
         if (collapsed.has(ck)) {
           return (
-            <section key={col.key} className={'bcol bcol--collapsed' + (isDrop ? ' bcol--drop' : '') + (col.key === NONE ? ' bcol--none' : '')}
+            <section key={col.key} className={'bcol bcol--collapsed' + (pinnedRight(i) ? ' bcol--right' : '') + (i === lastOpen + 1 && pinnedRight(i) ? ' bcol--right-first' : '') + (isDrop ? ' bcol--drop' : '') + (col.key === NONE ? ' bcol--none' : '')}
+              style={sized(ck + ':collapsed')}
               aria-label={`${col.label} (collapsed)`} title={`${col.label}: click to expand`} data-column={col.key}
               onClick={() => onToggleCollapse(ck)}
               onDragOver={(e) => over(e, col.key, -1)}
@@ -127,11 +198,14 @@ export function Board({ rows, options, order, selected, onSelect, onOpen, onMenu
               <button className="bcol__chev" aria-label={`Expand ${col.label}`} aria-expanded={false}
                 onClick={(e) => { e.stopPropagation(); onToggleCollapse(ck) }}>{chevron(false)}</button>
               <span className="bcol__vtext"><span className="bcol__name">{col.label}</span> <span className="bcol__count">{col.cards.length}</span></span>
+              {edge(ck + ':collapsed', STRIP_W, pinnedRight(i))}
             </section>
           )
         }
         return (
-          <section key={col.key} className={'bcol' + (isDrop ? ' bcol--drop' : '') + (col.key === NONE ? ' bcol--none' : '')} aria-label={col.label} data-column={col.key}>
+          <section key={col.key} className={'bcol' + (isDrop ? ' bcol--drop' : '') + (col.key === NONE ? ' bcol--none' : '')} aria-label={col.label} data-column={col.key}
+            style={sized(ck)}>
+            {edge(ck, OPEN_W)}
             <header className="bcol__head">
               <span className="bcol__name">{col.label}</span>
               <span className="bcol__count">{col.cards.length}</span>
@@ -152,6 +226,7 @@ export function Board({ rows, options, order, selected, onSelect, onOpen, onMenu
                     onDragStart={(e) => {
                       e.dataTransfer.setData(DRAG_TYPE, r.folder)
                       e.dataTransfer.effectAllowed = 'move'
+                      setDragPill(e, r)
                       draggingRef.current = r.folder
                       setTimeout(() => setDragging(r.folder), 0)
                     }}
@@ -188,6 +263,7 @@ function Card({ r, selected, dragging, onClick, onContextMenu, onDragStart, onDr
       <Thumb id={r.videoId} className="bcard__thumb" />
       <div className="bcard__body">
         <div className="bcard__title">{r.title}</div>
+        {r.topic && <div className="bcard__topic"><span className="topicchip" title={`In ${r.topic}`}>{r.topic}</span></div>}
         {r.channel && <div className="bcard__channel">{r.channel}</div>}
         {!r.ready ? (
           <div className="bcard__row"><span className="badge">{r.needsFormat ? 'needs setup' : 'needs timing'}</span></div>

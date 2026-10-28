@@ -44,6 +44,8 @@ not writable; `-- --cli-only` installs only the command). The shim runs
 Environment variables are `VIDEO_NOTES_*` (`DEBUG_LOG`, `USER_DATA`, `MUTE`, `NO_IMPORT`); the old `FOLLOW_ALONG_*` names still work.
 `VIDEO_NOTES_FEED_DIR=<tmp>` points the 📺 Feed's files somewhere else: **always set it for test instances** (the default is the
 user's real `~/Documents/GitHub/skills-global-yaseen/yaseen-video-notes-app/`, which also holds their SKILL.md — never touch that).
+`VIDEO_NOTES_MENU_SCRIPT=<file>` (test instances only): context menus and the delete-folder confirm are answered with the
+file's next line (an item id / `delete` / empty) instead of being shown, and logged, so CDP tests can drive them.
 Real-network Feed checks: `VIDEO_NOTES_NETWORK_TESTS=1 npx vitest run src/core/feedFetch.network.test.ts`.
 
 yt-dlp upkeep: the app updates yt-dlp itself (daily if > 14 days old, after a yt-dlp failure if > 7 days old, menu
@@ -75,6 +77,12 @@ Do not commit unless asked.
     (resolve a channel, list a channel: yt-dlp → Videos tab page → RSS); `feedFixtures.ts` — real saved output for the tests
   - `status.ts` — per-video status in the yaseen-docs-app format (+ old-value mapping, `migrateStatus`);
     `statusMigrate.ts` — the `migrate-status` folder run; `progress.ts` — the resume file
+  - `library.ts` — the Library's folders: video vs topic folder (`folderKind`), the sidebar tree (`folderTree`: direct
+    `videos` count + `total` at any depth), Finder-style folder views = direct videos only (`listFolder`,
+    `directVideoFolders`), videos at any depth (`videoFolders`, `listLibrary` + `topic` chip: 📚 All videos, In progress,
+    the board file), topic new / rename / delete-if-empty,
+    `moveVideoFolder` (rename under the transcript's lock; across disks copy + byte check + delete; refuses collisions
+    and moves to another library), `relocatePath`
   - `board.ts` — Kanban board order logic (pure, used by the renderer too); `boardFile.ts` — `.video-notes-board.json` (`seconds` + optional
     `home`; resume at home, New Tab progress from the furthest of the two)
   - `home.ts` — 📍 home (main spot) + back / forward history logic; self-contained, served as `/home.js` via
@@ -91,7 +99,9 @@ Do not commit unless asked.
   - `player.html` — the whole player page (HTML/CSS/JS, served by the session's server)
   - `injected.js` — JS injected into the YouTube iframe (rate, seek, status, keys)
 - `preload/` — `shell.ts` (window.fa, typed IPC) and `player.ts` (window.faNative.post)
-- `renderer/` — the shell: `TabBar.tsx` (the yaseen-docs-app tab bar look), `NewTab.tsx` (Finder-style New Tab page,
+- `renderer/` — the shell: `TabBar.tsx` (the yaseen-docs-app tab bar look), `FolderTree.tsx` (the sidebar's folder tree:
+  libraries + topics, direct counts (+ total in the tooltip), drop a card / row to move it, inline New Folder / Rename),
+  `NewTab.tsx` (Finder-style New Tab page: a folder shows only its own videos, 📚 All videos everything with topic chips,
   Board | Table toggle; Board is the default, Table is not saved), `Board.tsx` (the Kanban board: columns,
   collapsible to strips (`collapsedColumns` setting), cards with thumbnails, drag and drop),
   `Feed.tsx` (the 📺 Feed view, typed-confirm Unfollow… dialog)
@@ -142,15 +152,23 @@ Do not commit unless asked.
    old files without it read as `seconds`; byte-pinned by tests) (synced with the vault, so it works
    across computers) and is written rarely (pause, seek, tab switch, close, quit; at most once a minute while
    playing; not if it moved < 5 s) to keep git quiet.
-7. **Status format is shared with yaseen-docs-app — do not change it.** Column in the parent folder's `.folder.md`
+7. **Status format is shared with yaseen-docs-app — do not change it.** Column in the **status folder's** `.folder.md`
    (`folder_settings.columns.status`, kind select, options `1-Backlog, 2-Todo, 3-In-Progress, 4-Done` — the docs
-   app's own defaults — `optionSort: manual`), value in the transcript's frontmatter at `in.<parent folder id>.status`
-   (top-level `status` when the folder has no id). Only add the column when missing; minimal line edits under the
+   app's own defaults — `optionSort: manual`), value in the transcript's frontmatter at `in.<status folder id>.status`
+   (top-level `status` when the folder has no id). **The status folder is the library** (the pinned folder, e.g.
+   learning-log), not the video's parent: videos may sit in topic subfolders (`learning-log/AI agents/10-27-x/`) and
+   keep `in.<learning-log id>.status`, like a docs-app folder view (rows = notes at any depth). Resolution
+   (`statusFolder` / `statusRootOf` in `core/status.ts`): nearest pinned ancestor (`setLibraryRoots`, set by
+   `Settings`); else the nearest ancestor whose `.folder.md` declares the column (the CLI); else the parent. Moving a
+   video between topics must never change its status. Never create `.folder.md` in a topic; tolerate one (its own id
+   is ignored for status). Only add the column when missing; minimal line edits under the
    file's lock; never touch other keys. The old app-written options `1-To-Watch…4-Carded` are read as the new ones
    everywhere (`1-To-Watch`→`2-Todo`, `2-Watching`/`3-Watched`→`3-In-Progress`, `4-Carded`→`4-Done`); an exactly-old
    option list is replaced when the app writes `.folder.md`; `video-notes migrate-status <folder> [--dry-run]`
-   rewrites old values. Opening a video moves empty/Backlog/Todo → In progress; nothing else changes it by itself
-   (Done is manual). The board's manual order is `<parent>/.video-notes-board.json` (`core/board.ts`, `boardFile.ts`).
+   rewrites old values. A newly added video starts in Backlog (`startInBacklog`); about 30 s of real playback moves empty/Backlog/Todo → In progress (just opening it does not); nothing else changes it by itself
+   (Done is manual). The board's manual order is `<library>/.video-notes-board.json` (`core/board.ts`, `boardFile.ts`),
+   keyed by video id, for the videos at any depth; every folder view (only its direct videos) and 📚 All videos show it
+   filtered (All videos merges the libraries' files; a card's move is written to its own library's file).
 8. **Don't change file formats casually.** The vault already holds folders made by the old Swift version and by
    this app; the unit tests pin the exact bytes. Any format change must keep reading the existing files.
 9. **Never write test output into `/Users/yasin/Documents/GitHub/yaseen-docs-vault`.** Test with a temp folder

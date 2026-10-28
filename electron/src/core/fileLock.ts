@@ -106,8 +106,11 @@ function takeOver(p: string, seen: LockInfo | null, now: number, staleMs: number
   }
 }
 
-/** Takes the lock for `path` (waits up to ~10 s); returns the release function. */
-export function acquireLock(path: string, opts: LockOptions = {}): () => void {
+/**
+ * Takes the lock for `path` (waits up to ~10 s); returns the release function. `release(at)`: the file (and so its
+ * lock) was moved to `at` meanwhile (a video folder moved to another folder): releases the lock there.
+ */
+export function acquireLock(path: string, opts: LockOptions = {}): (at?: string) => void {
   const p = lockPath(path)
   // VIDEO_NOTES_LOCK_WAIT_MS: for tests of the CLI's "file busy" exit code
   const envWait = Number(process.env.VIDEO_NOTES_LOCK_WAIT_MS)
@@ -118,10 +121,11 @@ export function acquireLock(path: string, opts: LockOptions = {}): () => void {
   for (;;) {
     const info: LockInfo = { pid: process.pid, host: HOST, time: now(), token: randomUUID() }
     if (create(p, info)) {
-      return () => {
+      return (at?: string) => {
         // only our own lock (a writer that took it over after 30 s keeps theirs)
-        const cur = readLock(p)
-        if (cur && cur.token === info.token) { try { unlinkSync(p) } catch { /* gone */ } }
+        const lp = at === undefined ? p : lockPath(at)
+        const cur = readLock(lp)
+        if (cur && cur.token === info.token) { try { unlinkSync(lp) } catch { /* gone */ } }
       }
     }
     const held = readLock(p)

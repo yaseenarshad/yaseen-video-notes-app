@@ -15,6 +15,24 @@ changes. Chromium changes speed smoothly, still plays 1080p, and still lets the 
 How it works (pipeline, file formats, the YouTube trick, failure modes): [docs/how-it-works.md](docs/how-it-works.md).
 Notes for coding agents: [CLAUDE.md](CLAUDE.md).
 
+## Topic folders
+
+A library (a pinned folder like `learning-log`) can hold **topic folders** (`learning-log/AI agents/…`). The
+sidebar's Folders section is a tree: each library and its topics, recursively; expand / collapse is remembered. It
+works like Finder: clicking a folder shows only the videos **right in it** — the library shows the loose videos still
+to sort, a topic only its own (a subtopic's show when you click the subtopic) — and each folder's count is those
+direct videos (the tooltip adds the total with subfolders). **📚 All videos** (next to Recent / In progress) shows every
+video of every library at any depth, cards in a topic with a small topic chip. Moving a card out of the folder you are
+looking at takes it off that board at once. Right-click a folder →
+**New Folder…** / **Rename…** (inline) / **Show in Finder** / **Delete** (only an empty folder, after a confirm).
+
+Move a video by dragging its card or row onto a folder in the tree, or right-click → **Move to ▸**. The whole video
+folder is renamed into place ("Moved to AI agents · Undo"); a name that is already there is refused, and a tab playing
+that video keeps playing. The status does not change: it belongs to the library (`in.<learning-log id>.status`), like a
+yaseen-docs-app folder view, and the board order is the library's, keyed by video id (each view shows it filtered to
+its cards; drag-reorder works in every folder view and in All videos). Paste a link while a topic is
+selected (or pick it in the "→ folder" chip) to add the video there.
+
 ## 📺 Feed
 
 The New Tab sidebar has a **📺 Feed** item, apart from the Library: the latest long-form videos of the YouTube
@@ -127,4 +145,4 @@ While you play normally, Home follows you; a jump of more than ~20 s freezes it 
 where you are (after ~3 min away the chip offers that; it never moves by itself). `⌘[` / `⌘]` step back / forward
 through the spots you jumped from, like a browser. Reopening a video resumes at Home.
 Right-click a note for Edit / Copy / Delete (and Release claim on a note an agent claimed). Select words (drag, double-click) and press `N` for a note on them.
-Right-click a tab for Copy YouTube Link / Copy .md Path / Show in Finder / Close Tab.
+Right-click a tab for Copy for Agent (a short prompt pointing an agent at the skill and this transcript) / Copy YouTube Link / Copy .md Path / Show in Finder / Close Tab.

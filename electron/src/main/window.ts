@@ -1,15 +1,17 @@
 import { app, BaseWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, screen, shell, WebContentsView, type MenuItemConstructorOptions } from 'electron'
 import { randomUUID } from 'node:crypto'
-import { existsSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
-import { ensure, entry, inProgress, listFolders, make, markdownFile, NeedsFormatting, type FolderEntry, type TranscriptFolder } from '../core/folderMaker'
-import { cardId, type DropSpot } from '../core/board'
+import { ensure, entry, inProgress, make, markdownFile, NeedsFormatting, type FolderEntry, type TranscriptFolder } from '../core/folderMaker'
+import { createTopic, deleteEmptyTopic, folderTree, listFolder, listLibrary, moveVideoFolder, relocatePath, renameTopic, videoFolders, type FolderNode } from '../core/library'
+import { cardId, type BoardOrder, type DropSpot } from '../core/board'
 import { moveOnBoard, readBoard } from '../core/boardFile'
-import { readStatus, writeStatus } from '../core/status'
+import { getLibraryRoots, readStatus, startInBacklog, statusFolder, statusRootOf, writeStatus } from '../core/status'
 import { parseYouTubeID } from '../core/transcript'
-import type { LauncherInfo, MenuSpec, ShellCommand, ShellState, Source, TabInfo, WorkEvent } from '../shared/api'
+import type { FolderResult, LauncherInfo, MenuSpec, MoveAnswer, ShellCommand, ShellState, Source, TabInfo, WorkEvent } from '../shared/api'
 import { DebugLog } from './debugLog'
+import { Feed } from './feed'
 import { PlayerSession } from './session'
 import { Settings } from './settings'
 
@@ -32,6 +34,17 @@ const BAR = 44
  * one WebContentsView per open video below it. Only the visible tab plays: switching tabs pauses
  * the one left behind.
  */
+/** Tab menu "Copy for Agent": a short prompt that points an agent at the skill and this video's transcript. */
+export function agentPrompt(title: string, markdown: string): string {
+  const skill = join(homedir(), 'Documents/GitHub/skills-global-yaseen/yaseen-video-notes-app/SKILL.md')
+  return [
+    `Use the yaseen-video-notes-app skill (read ${skill} first).`,
+    `Video: ${title}`,
+    `Transcript: ${markdown}`,
+    'Make Mochi cards from the open #mochi notes.',
+  ].join('\n')
+}
+
 export class MainWindow {
   readonly win: BaseWindow
   readonly shell: WebContentsView
@@ -265,9 +278,38 @@ export class MainWindow {
     if (!parseYouTubeID(l)) return
     const parent = destination.startsWith('~/') ? homedir() + destination.slice(1) : destination
     Settings.outputParent = parent
-    if (!Settings.pinnedFolders.includes(parent) && existsSync(parent)) Settings.pinnedFolders = [...Settings.pinnedFolders, parent]
-    await this.runWork(tabId, (progress) => make(l, parent, { allowFormat: false, progress }))
-    if (!Settings.pinnedFolders.includes(parent) && existsSync(parent)) Settings.pinnedFolders = [...Settings.pinnedFolders, parent]
+    // a new destination becomes a library in the sidebar, unless it is a topic folder of one already
+    const pinIt = () => { if (!inLibrary(parent) && existsSync(parent)) Settings.pinnedFolders = [...Settings.pinnedFolders, parent] }
+    pinIt()
+    // the same video anywhere in this library (another topic) is reused, never made twice
+    const root = libraryOf(parent)
+    await this.runWork(tabId, async (progress) => {
+      const t = await make(l, parent, { allowFormat: false, progress, existingIn: root ? videoFolders(root) : [] })
+      if (!t.reused) startInBacklog(t.folder, t.markdown, DebugLog.log)   // a new video starts in Backlog (status of the library)
+      return t
+    })
+    pinIt()
+  }
+
+  /**
+   * A folder moved (a video into another topic, a topic renamed): everything that holds its path follows — the
+   * saved settings (Recent, open tabs, pinned, destination, collapsed tree folders), and every open tab playing a
+   * video in it is re-pointed in place (no reload: the page only talks to its session's server).
+   */
+  relocate(from: string, to: string): void {
+    Settings.relocate(from, to)
+    let tabs = 0
+    for (const t of this.tabs) {
+      const s = t.session
+      if (!s || relocatePath(s.transcript.folder, from, to) === s.transcript.folder) continue
+      const r = (p: string) => relocatePath(p, from, to)
+      s.relocate({ ...s.transcript, folder: r(s.transcript.folder), markdown: r(s.transcript.markdown), sidecar: r(s.transcript.sidecar) })
+      tabs++
+    }
+    Feed.libraryMoved()
+    this.saveOpenTabs()
+    this.pushState()
+    DebugLog.log(`moved ${from} → ${to}${tabs ? ` (${tabs} open tab${tabs === 1 ? '' : 's'} re-pointed)` : ''}`)
   }
 
   async openExisting(tabId: string, startAt?: string): Promise<void> {
@@ -323,6 +365,7 @@ export class MainWindow {
     const s = tab.session
     if (s) {
       items.push(
+        { label: 'Copy for Agent', click: () => clipboard.writeText(agentPrompt(s.sidecar.title, s.transcript.markdown)) },
         { label: 'Copy YouTube Link', click: () => clipboard.writeText(`https://www.youtube.com/watch?v=${s.sidecar.id}`) },
         { label: 'Copy .md Path', click: () => clipboard.writeText(s.transcript.markdown) },
         { label: 'Show in Finder', click: () => shell.showItemInFolder(s.transcript.markdown) },
@@ -334,6 +377,8 @@ export class MainWindow {
   }
 
   popup(specs: MenuSpec[]): Promise<string | null> {
+    const scripted = scriptedAnswer(`menu ${JSON.stringify(specs)}`)
+    if (scripted !== undefined) return Promise.resolve(scripted)
     return new Promise((resolve) => {
       let chosen: string | null = null
       const build = (list: MenuSpec[]): MenuItemConstructorOptions[] => list.map((m) => m.separator
@@ -391,8 +436,22 @@ export function registerIPC(get: () => MainWindow | null): void {
     }
   })
   ipcMain.on('launcher:groupByStatus', (_e, on: boolean) => { Settings.groupByStatus = !!on })
+  ipcMain.on('launcher:columnWidths', (_e, w: unknown) => {
+    const out: Record<string, number> = {}
+    if (w && typeof w === 'object') for (const [k, v] of Object.entries(w as Record<string, unknown>)) if (typeof v === 'number' && Number.isFinite(v)) out[k] = Math.round(v)
+    Settings.columnWidths = out
+  })
   ipcMain.on('launcher:collapsed', (_e, keys: unknown) => { Settings.collapsedColumns = Array.isArray(keys) ? keys.filter((k): k is string => typeof k === 'string') : [] })
-  ipcMain.handle('board:order', (_e, parent: string) => (isDir(parent) ? readBoard(parent) : {}))
+  // the order file is the library's (status folder), for its videos at any depth; a topic shows it filtered
+  ipcMain.handle('board:order', (_e, parent: string) => (isDir(parent) ? readBoard(statusRootOf(parent)) : {}))
+  // 📚 All videos: every library's order, column by column (ids are video ids; each card is written to its own library's file)
+  ipcMain.handle('board:orderAll', (): BoardOrder => {
+    const out: BoardOrder = {}
+    for (const root of new Set(Settings.pinnedFolders.filter(isDir).map((p) => statusRootOf(p)))) {
+      for (const [k, ids] of Object.entries(readBoard(root))) out[k] = [...new Set([...(out[k] ?? []), ...ids])]
+    }
+    return out
+  })
   ipcMain.handle('board:move', (_e, folder: string, to: string, spot: DropSpot) => {
     try {
       const md = markdownFile(folder)
@@ -403,11 +462,56 @@ export function registerIPC(get: () => MainWindow | null): void {
       }
       const e = entry(folder)
       if (!e) return null
-      moveOnBoard(dirname(folder), cardId(e), to, spot ?? {})
+      moveOnBoard(statusFolder(folder), cardId(e), to, spot ?? {})
       return null
     } catch (e) {
       return `Could not move the card: ${e instanceof Error ? e.message : String(e)}`
     }
+  })
+  // ---------- the sidebar's folder tree: libraries (pinned) and their topic folders ----------
+  ipcMain.handle('library:tree', (): FolderNode[] => Settings.pinnedFolders.filter(isDir).map((p) => folderTree(p)))
+  ipcMain.on('library:collapsed', (_e, paths: unknown) => { Settings.collapsedFolders = Array.isArray(paths) ? paths.filter((k): k is string => typeof k === 'string') : [] })
+  ipcMain.handle('library:newFolder', (_e, parent: string, name: string): FolderResult => {
+    if (!inLibrary(parent)) return { error: 'New folders go inside a library folder of the sidebar.' }
+    try {
+      const path = createTopic(parent, String(name ?? ''))
+      DebugLog.log(`new folder ${path}`)
+      return { path }
+    } catch (e) { return { error: message(e) } }
+  })
+  ipcMain.handle('library:renameFolder', (_e, path: string, name: string): FolderResult => {
+    if (!inLibrary(path) || Settings.pinnedFolders.includes(path)) return { error: 'Only topic folders inside a library can be renamed here.' }
+    try {
+      const to = renameTopic(path, String(name ?? ''))
+      if (to !== path) w()?.relocate(path, to)
+      return { path: to }
+    } catch (e) { return { error: message(e) } }
+  })
+  ipcMain.handle('library:deleteFolder', async (_e, path: string): Promise<string | null> => {
+    const win = w()
+    if (!win || !inLibrary(path) || Settings.pinnedFolders.includes(path)) return 'Only topic folders inside a library can be deleted here.'
+    const scripted = scriptedAnswer(`confirm delete ${path}`)
+    const ok = scripted !== undefined ? scripted === 'delete' : (await dialog.showMessageBox(win.win, {
+      type: 'warning', message: `Delete the folder "${basename(path)}"?`, detail: 'It is empty. This cannot be undone.',
+      buttons: ['Delete', 'Cancel'], defaultId: 1, cancelId: 1,
+    })).response === 0
+    if (!ok) return 'cancel'
+    try {
+      deleteEmptyTopic(path)
+      Settings.collapsedFolders = Settings.collapsedFolders.filter((p) => p !== path)
+      if (Settings.outputParent === path) Settings.outputParent = dirname(path)
+      DebugLog.log(`deleted empty folder ${path}`)
+      return null
+    } catch (e) { return message(e) }
+  })
+  ipcMain.handle('library:move', (_e, folder: string, destParent: string): MoveAnswer => {
+    if (!inLibrary(destParent)) return { error: 'Videos move only into the folders of a library in the sidebar.' }
+    try {
+      const r = moveVideoFolder(folder, destParent)
+      if (!r) return null
+      w()?.relocate(r.from, r.to)
+      return r
+    } catch (e) { return { error: message(e) } }
   })
   ipcMain.handle('menu:popup', (_e, items: MenuSpec[]) => w()?.popup(items) ?? null)
   ipcMain.on('finder:show', (_e, path: string) => shell.showItemInFolder(path))
@@ -420,7 +524,7 @@ export function registerIPC(get: () => MainWindow | null): void {
 function launcherInfo(): LauncherInfo {
   return {
     pinned: Settings.pinnedFolders, outputParent: Settings.outputParent, groupByStatus: Settings.groupByStatus,
-    collapsedColumns: Settings.collapsedColumns, home: homedir(),
+    collapsedColumns: Settings.collapsedColumns, collapsedFolders: Settings.collapsedFolders, columnWidths: Settings.columnWidths, home: homedir(),
   }
 }
 
@@ -428,12 +532,20 @@ function listSource(source: Source): FolderEntry[] {
   const recentEntries = () => Settings.recents.map((r) => entry(r.folder)).filter((e): e is FolderEntry => e !== null)
   switch (source.kind) {
     case 'folder':
-      return isDir(source.path) ? listFolders(source.path) : []
+      // a library or topic, Finder-style: only the videos right in it (a topic's show when the topic is clicked)
+      return isDir(source.path) ? listFolder(source.path) : []
+    case 'all': {
+      // 📚 All videos: every library's videos at any depth (topic chips relative to its library), newest first
+      const seen = new Set<string>()
+      return Settings.pinnedFolders.filter(isDir).flatMap((p) => listLibrary(p))
+        .filter((e) => !seen.has(e.folder) && (seen.add(e.folder), true))
+        .sort((a, b) => (a.date !== b.date ? b.date - a.date : b.modified - a.modified))
+    }
     case 'recent':
       return recentEntries()
     case 'inProgress': {
       const seen = new Set<string>()
-      return [...Settings.pinnedFolders.flatMap(listFolders), ...recentEntries()]
+      return [...Settings.pinnedFolders.flatMap((p) => listLibrary(p)), ...recentEntries()]
         .filter((e) => inProgress(e) && !seen.has(e.folder) && (seen.add(e.folder), true))
         .sort((a, b) => ((b.progress?.updated ?? '') > (a.progress?.updated ?? '') ? 1 : (b.progress?.updated ?? '') < (a.progress?.updated ?? '') ? -1 : 0))
     }
@@ -441,5 +553,25 @@ function listSource(source: Source): FolderEntry[] {
 }
 
 const isDir = (p: string): boolean => { try { return statSync(p).isDirectory() } catch { return false } }
+/**
+ * Test instances: VIDEO_NOTES_MENU_SCRIPT=<file> answers each context menu / confirm with the file's next line (a
+ * menu item id, "delete", or empty for none) instead of showing it, and logs what was asked, so CDP tests can drive
+ * them. undefined: not scripted (show the real one).
+ */
+function scriptedAnswer(what: string): string | null | undefined {
+  const script = process.env.VIDEO_NOTES_MENU_SCRIPT
+  if (!script) return undefined
+  let lines: string[] = []
+  try { lines = readFileSync(script, 'utf8').split('\n') } catch { /* none */ }
+  const pick = lines.length ? lines.shift()!.trim() : ''
+  try { writeFileSync(script, lines.join('\n')) } catch { /* ignore */ }
+  DebugLog.log(`scripted → ${pick || 'none'}: ${what}`)
+  return pick || null
+}
+const message = (e: unknown): string => (e instanceof Error ? e.message : String(e))
+/** The library (pinned folder) that holds `p` (or is `p`), or null. */
+const libraryOf = (p: string): string | null => getLibraryRoots().find((r) => p === r || p.startsWith(r + '/')) ?? null
+/** True for a library folder or a folder inside one. */
+const inLibrary = (p: string): boolean => typeof p === 'string' && libraryOf(p) !== null
 
 export const appReady = (): Promise<void> => app.whenReady()

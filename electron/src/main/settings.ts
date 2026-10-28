@@ -5,6 +5,8 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { atomicWrite } from '../core/atomic'
 import { DEFAULT_FEED_DIR } from '../core/feed'
+import { relocatePath } from '../core/library'
+import { setLibraryRoots } from '../core/status'
 import { DebugLog } from './debugLog'
 
 /**
@@ -26,6 +28,10 @@ interface Data {
   groupByStatus: boolean
   /** Collapsed Board columns (status values, ":none" for "No status"); every board view. */
   collapsedColumns?: string[]
+  /** Board column widths in px by column key (status value or ":none"; "<key>:collapsed" for the collapsed strip). */
+  columnWidths?: Record<string, number>
+  /** Collapsed folders of the sidebar's folder tree (paths; everything else is expanded). */
+  collapsedFolders?: string[]
   bounds?: { x: number; y: number; width: number; height: number }
   importedFromSwift?: boolean
   /** When the daily yt-dlp check last ran (ISO time). */
@@ -53,7 +59,11 @@ class SettingsStore {
     try {
       this.d = { ...this.d, ...(JSON.parse(readFileSync(this.file, 'utf8')) as Partial<Data>) }
     } catch { /* first launch */ }
+    this.syncRoots()
   }
+
+  /** The pinned folders are the libraries: a video's status belongs to its library, even in a topic subfolder (core/status.ts). */
+  private syncRoots(): void { setLibraryRoots(this.d.pinnedFolders ?? [this.outputParent]) }
 
   /** Writes soon (several changes in a row make one write). */
   private save(): void {
@@ -91,11 +101,11 @@ class SettingsStore {
   // ---------- folders ----------
 
   get outputParent(): string { return this.d.outputParent ?? join(homedir(), 'Documents/Yaseen Video Notes') }
-  set outputParent(v: string) { this.d.outputParent = v; this.save() }
+  set outputParent(v: string) { this.d.outputParent = v; this.save(); this.syncRoots() }
 
   /** Folders pinned in the New Tab sidebar (the output folder by default). */
   get pinnedFolders(): string[] { return (this.d.pinnedFolders ?? [this.outputParent]).filter(exists) }
-  set pinnedFolders(v: string[]) { this.d.pinnedFolders = v; this.save() }
+  set pinnedFolders(v: string[]) { this.d.pinnedFolders = v; this.save(); this.syncRoots() }
 
   get openTabs(): string[] { return this.d.openTabs }
   set openTabs(v: string[]) { this.d.openTabs = v; this.save() }
@@ -111,6 +121,34 @@ class SettingsStore {
 
   get collapsedColumns(): string[] { return Array.isArray(this.d.collapsedColumns) ? this.d.collapsedColumns.filter((x) => typeof x === 'string') : [] }
   set collapsedColumns(v: string[]) { this.d.collapsedColumns = [...new Set(v.filter((x) => typeof x === 'string'))]; this.save() }
+
+  get columnWidths(): Record<string, number> {
+    const w = this.d.columnWidths
+    if (!w || typeof w !== 'object') return {}
+    return Object.fromEntries(Object.entries(w).filter(([k, v]) => typeof k === 'string' && typeof v === 'number' && Number.isFinite(v)))
+  }
+  set columnWidths(v: Record<string, number>) { this.d.columnWidths = v; this.save() }
+
+  get collapsedFolders(): string[] { return Array.isArray(this.d.collapsedFolders) ? this.d.collapsedFolders.filter((x) => typeof x === 'string') : [] }
+  set collapsedFolders(v: string[]) { this.d.collapsedFolders = [...new Set(v.filter((x) => typeof x === 'string'))]; this.save() }
+
+  /**
+   * A folder moved (a video to another topic, a topic renamed): every saved path to it or inside it follows —
+   * Recent, open tabs, pinned folders, the destination folder, collapsed tree folders. Returns true if any changed.
+   */
+  relocate(from: string, to: string): boolean {
+    const r = (p: string) => relocatePath(p, from, to)
+    const before = JSON.stringify(this.d)
+    this.d.recents = this.d.recents.map((x) => ({ ...x, folder: r(x.folder) }))
+    this.d.openTabs = this.d.openTabs.map(r)
+    if (this.d.pinnedFolders) this.d.pinnedFolders = this.d.pinnedFolders.map(r)
+    if (this.d.outputParent) this.d.outputParent = r(this.d.outputParent)
+    if (this.d.collapsedFolders) this.d.collapsedFolders = this.d.collapsedFolders.map(r)
+    if (JSON.stringify(this.d) === before) return false
+    this.save()
+    this.syncRoots()
+    return true
+  }
 
 
   /** When the daily yt-dlp check last ran (ISO time). */

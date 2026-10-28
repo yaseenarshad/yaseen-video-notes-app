@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest'
 import { insert, paragraphCount } from './notes'
 import {
   addColumn, advanceOnOpen, DEFAULT_OPTIONS, effectiveOptions, folderInfo, mapStatus, migrateOptions, migrateStatus, OLD_OPTIONS, openAdvance, readStatus,
-  setValue, statusOptions, value, withColumn, writeStatus, yaml,
+  setValue, startInBacklog, statusOptions, value, withColumn, writeStatus, yaml,
 } from './status'
 
 const body = '# T\n\n- url: https://www.youtube.com/watch?v=ID\n\n---\n\n[0:00](https://www.youtube.com/watch?v=ID&t=0s) Words.\n'
@@ -125,6 +125,12 @@ id: abc
       const md = join(video, 'x.md')
       writeFileSync(md, '---\nid: YAS-1\n---\n' + body)
       expect(readStatus(video, md)).toBeNull()
+      expect(startInBacklog(video, md)).toBe('1-Backlog') // a new video starts in Backlog
+      expect(readStatus(video, md)).toBe('1-Backlog')
+      expect(startInBacklog(video, md)).toBeNull() // never overrides a status
+      writeStatus(video, md, '4-Done')
+      expect(startInBacklog(video, md)).toBeNull()
+      writeFileSync(md, '---\nid: YAS-1\n---\n' + body) // back to empty for the advance checks
       expect(advanceOnOpen(video, md)).toBe('3-In-Progress') // empty → In progress
       expect(advanceOnOpen(video, md)).toBeNull() // already there
       writeStatus(video, md, '4-Done') // manual change: any direction

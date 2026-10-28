@@ -192,9 +192,9 @@ function loadSidecar(path: string): Sidecar | null {
   try { return decodeSidecar(readFileSync(path, 'utf8')) } catch { return null }
 }
 
-/** A subfolder of `parent` that already has this video. */
-export function existingFolder(id: string, parent: string): string | null {
-  const dirs = list(parent).filter(isDir)
+/** A subfolder of `parent` (or one of `more`, e.g. every video folder of the library) that already has this video. */
+export function existingFolder(id: string, parent: string, more: readonly string[] = []): string | null {
+  const dirs = [...list(parent).filter(isDir), ...more.filter((d) => dirname(d) !== parent && isDir(d))]
   for (const d of dirs) if (loadSidecar(join(d, SIDECAR_FILE))?.id === id) return d
   for (const d of dirs) {
     const md = markdownFile(d)
@@ -214,14 +214,17 @@ export class NeedsFormatting extends Error {
 /** Where the original of a reformatted .md is kept: "<slug>.original.md". */
 export const backupPath = (md: string): string => md.replace(/\.md$/, '') + '.original.md'
 
-/** Makes (or reuses) the folder for a video in `parent`. */
-export async function make(input: string, parent: string, opts: { date?: Date; allowFormat?: boolean; progress?: ProgressFn } = {}): Promise<TranscriptFolder> {
+/**
+ * Makes (or reuses) the folder for a video in `parent`. `existingIn`: more video folders where an existing folder of
+ * the same video counts (the whole library, when `parent` is one of its topics), so a video is never made twice.
+ */
+export async function make(input: string, parent: string, opts: { date?: Date; allowFormat?: boolean; progress?: ProgressFn; existingIn?: readonly string[] } = {}): Promise<TranscriptFolder> {
   const progress = opts.progress ?? (() => {})
   const id = parseYouTubeID(input)
   if (!id) throw new FollowAlongError(`That does not look like a YouTube link: ${input}`)
   if (!existsSync(parent)) mkdirSync(parent, { recursive: true })
   else if (!isDir(parent)) throw new FollowAlongError(`${parent} is not a folder.`)
-  const existing = existingFolder(id, parent)
+  const existing = existingFolder(id, parent, opts.existingIn ?? [])
   if (existing) {
     progress(`Found an existing folder: ${basename(existing)}`)
     return ensure(existing, { allowFormat: opts.allowFormat ?? true, progress })
@@ -355,8 +358,10 @@ export interface FolderEntry {
   channel: string | null
   /** As the app shows it: an old value (`2-Watching`…) reads as its new one (`3-In-Progress`…). */
   status: string | null
-  /** The parent folder's options (an old app-written list reads as the new defaults). */
+  /** The status folder's options (an old app-written list reads as the new defaults). */
   statusOptions: string[]
+  /** In a library listing: the topic folder it is in, relative to the listed folder ("AI agents/Evals"); null / missing: right in it. */
+  topic?: string | null
 }
 
 /** The channel from a transcript's header list: "- channel: X" (also "* channel:", "* **Channel:** X"). */

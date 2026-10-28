@@ -1,5 +1,5 @@
 import { app, ipcMain } from 'electron'
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, watch, type FSWatcher } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, watch, type FSWatcher } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { atomicWrite } from '../core/atomic'
@@ -11,6 +11,7 @@ import {
 } from '../core/feed'
 import { checkShort, fetchChannel, RateLimited, resolveChannel, type YTDLPRunner } from '../core/feedFetch'
 import { findYTDLP, markdownFile, runYTDLP, videoIDInMarkdown } from '../core/folderMaker'
+import { videoFolders } from '../core/library'
 import { whileDownloading } from '../core/ytdlpUpdate'
 import type { FeedState } from '../shared/api'
 import { DebugLog } from './debugLog'
@@ -43,7 +44,6 @@ const MIN = 60_000
 const HOUR = 60 * MIN
 const STALE = 30 * MIN
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
-const isDir = (p: string): boolean => { try { return statSync(p).isDirectory() } catch { return false } }
 
 class FeedService {
   private cache: Cache = { channels: {}, shorts: {} }
@@ -198,6 +198,9 @@ class FeedService {
 
   // ---------- state for the New Tab pages ----------
 
+  /** A video folder moved (or a topic was renamed): "In Library" links are looked up again. */
+  libraryMoved(): void { this.lib = null }
+
   /** Video id → folder for the folders the New Tab page lists (pinned folders and Recent). */
   private library(): Map<string, string> {
     if (this.lib && Date.now() - this.lib.at < 3000) return this.lib.map
@@ -206,11 +209,8 @@ class FeedService {
       const md = markdownFile(d)
       folders.push({ folder: d, id: md ? videoIDInMarkdown(md) : null })
     }
-    for (const p of Settings.pinnedFolders) {
-      let names: string[] = []
-      try { names = readdirSync(p).sort() } catch { continue }
-      for (const n of names) if (!n.startsWith('.') && isDir(join(p, n))) add(join(p, n))
-    }
+    // every video of each library, at any depth (topic folders too)
+    for (const p of Settings.pinnedFolders) for (const d of videoFolders(p)) add(d)
     for (const r of Settings.recents) add(r.folder)
     this.lib = { at: Date.now(), map: libraryIndex(folders) }
     return this.lib.map

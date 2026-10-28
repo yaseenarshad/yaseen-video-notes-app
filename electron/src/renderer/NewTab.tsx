@@ -1,16 +1,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from "react"
 import { parseYouTubeID } from '../core/transcript'
 import { arrangeColumn, cardId, moveCard, newestFirst, type BoardOrder, type DropSpot } from '../core/board'
-import type { FeedState, FolderEntry, LauncherInfo, LibraryView, MenuSpec, Source, WorkEvent } from '../shared/api'
-import { Board, Thumb, type BoardColumn } from './Board'
+import type { FeedState, FolderEntry, FolderNode, LauncherInfo, LibraryView, MenuSpec, Source, WorkEvent } from '../shared/api'
+import { Board, setDragPill, Thumb, type BoardColumn } from './Board'
 import { FeedView } from './Feed'
+import { DRAG_TYPE, FolderTree, flatten, libraryOf, parentOf, type Editing } from './FolderTree'
 
 /** yaseen-docs-app's default status options (core/status.ts DEFAULT_OPTIONS). */
 const DEFAULT_OPTIONS = ['1-Backlog', '2-Todo', '3-In-Progress', '4-Done']
 const name = (p: string): string => p.split('/').filter(Boolean).pop() ?? p
 const tilde = (p: string, home: string): string => (home && p.startsWith(home + '/') ? '~' + p.slice(home.length) : p)
+/** `p` after folder `from` was renamed to `to` (core/library.ts relocatePath). */
+const relocated = (p: string, from: string, to: string): string => (p === from ? to : p.startsWith(from + '/') ? to + p.slice(from.length) : p)
+/** Indent for a nested folder in a native menu. */
+const indent = (depth: number): string => '\u2003'.repeat(depth)
 const sameSource = (a: Source | null, b: Source | null): boolean =>
   !!a && !!b && a.kind === b.kind && (a.kind !== 'folder' || (b.kind === 'folder' && a.path === b.path))
+/** Views with a manual board order (a folder, 📚 All videos); Recent / In progress keep their own order. */
+const hasBoardOrder = (s: Source | null): boolean => s?.kind === 'folder' || s?.kind === 'all'
 
 type SortKey = 'title' | 'date' | 'progress' | 'status' | 'notes'
 
@@ -58,12 +65,14 @@ export function NewTab({ tabId, active, work, clearWork }: { tabId: string; acti
   const [group, setGroup] = useState(false)
   /** Board is the default and what every view opens in; Table lasts only until another view is chosen (not saved). */
   const [view, setView] = useState<LibraryView>('board')
-  /** The folder's board order (Board view of a folder); null for Recent / In progress (no manual order). */
+  /** The board order (a folder's view: its library's order, filtered; All videos: every library's); null for Recent / In progress. */
   const [order, setOrder] = useState<BoardOrder | null>(null)
   /** A board move that could not be written (shown as a chip; the board goes back to what the files say). */
   const [moveError, setMoveError] = useState<string | null>(null)
   /** Collapsed board columns (settings `collapsedColumns`; every board view). */
   const [collapsedCols, setCollapsedCols] = useState<Set<string>>(new Set())
+  /** Board column widths (settings `columnWidths`; px by column key, "<key>:collapsed" for a strip). */
+  const [colWidths, setColWidths] = useState<Record<string, number>>({})
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [sort, setSort] = useState<{ key: SortKey; asc: boolean }>({ key: 'date', asc: false })
   const [selected, setSelected] = useState<string | null>(null)
@@ -73,6 +82,14 @@ export function NewTab({ tabId, active, work, clearWork }: { tabId: string; acti
   const [feedOn, setFeedOn] = useState(false)
   const [feed, setFeed] = useState<FeedState | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  /** The sidebar's folder tree: one per library (pinned folder), with its topic folders. */
+  const [trees, setTrees] = useState<FolderNode[]>([])
+  /** Collapsed folders of the tree (settings `collapsedFolders`). */
+  const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set())
+  /** The inline name field of New Folder… / Rename…. */
+  const [editing, setEditing] = useState<Editing | null>(null)
+  /** The last move of a video ("Moved to AI agents · Undo"). */
+  const [moved, setMoved] = useState<{ from: string; to: string; dest: string } | null>(null)
   const filterRef = useRef<HTMLInputElement>(null)
   const linkRef = useRef<HTMLInputElement>(null)
   const tableRef = useRef<HTMLDivElement>(null)
@@ -85,20 +102,25 @@ export function NewTab({ tabId, active, work, clearWork }: { tabId: string; acti
       setInfo(i)
       setGroup(i.groupByStatus)
       setCollapsedCols(new Set(i.collapsedColumns))
+      setColWidths(i.columnWidths ?? {})
+      setCollapsedFolders(new Set(i.collapsedFolders))
       setDestination(i.pinned[0] ?? i.outputParent)
       setSource(i.pinned[0] ? { kind: 'folder', path: i.pinned[0] } : { kind: 'recent' })
     })
   }, [])
 
+  const loadTree = useCallback(() => { void window.fa.folderTree().then(setTrees) }, [])
+
   const reload = useCallback(() => {
+    loadTree()
     const s = sourceRef.current
     if (!s) return
     setLoading(true)
-    const orderP = s.kind === 'folder' ? window.fa.boardOrder(s.path) : Promise.resolve(null)
+    const orderP = s.kind === 'folder' ? window.fa.boardOrder(s.path) : s.kind === 'all' ? window.fa.boardOrderAll() : Promise.resolve(null)
     void Promise.all([window.fa.list(s), orderP]).then(([list, o]) => {
       if (sameSource(s, sourceRef.current)) { setRows(list); setOrder(o); setLoading(false) }
     })
-  }, [])
+  }, [loadTree])
 
   useEffect(() => { setSelected(null); reload() }, [source, reload])
   useEffect(() => { if (active) { reload(); setTimeout(() => linkRef.current?.focus(), 0) } }, [active, reload])
@@ -120,6 +142,7 @@ export function NewTab({ tabId, active, work, clearWork }: { tabId: string; acti
   useEffect(() => { if (active) void window.fa.feedState().then(setFeed) }, [active])
   useEffect(() => { if (!notice) return; const t = setTimeout(() => setNotice(null), 2500); return () => clearTimeout(t) }, [notice])
   useEffect(() => { if (!moveError) return; const t = setTimeout(() => setMoveError(null), 8000); return () => clearTimeout(t) }, [moveError])
+  useEffect(() => { if (!moved) return; const t = setTimeout(() => setMoved(null), 8000); return () => clearTimeout(t) }, [moved])
 
   const choose = (s: Source) => {
     setFeedOn(false)
@@ -177,6 +200,14 @@ export function NewTab({ tabId, active, work, clearWork }: { tabId: string; acti
 
   const changeView = (v: LibraryView) => setView(v)
 
+  /** A column was resized (null = back to the default width). */
+  const resizeColumn = (key: string, width: number | null) => setColWidths((w) => {
+    const n = { ...w }
+    if (width === null) delete n[key]; else n[key] = Math.round(width)
+    window.fa.setColumnWidths(n)
+    return n
+  })
+
   const toggleColumn = (key: string) => setCollapsedCols((c) => {
     const n = new Set(c)
     if (n.has(key)) n.delete(key); else n.add(key)
@@ -189,7 +220,7 @@ export function NewTab({ tabId, active, work, clearWork }: { tabId: string; acti
    * and, in a folder, the order file. A failed write shows a chip and reloads what the files say.
    */
   const moveCardTo = async (r: FolderEntry, to: string, spot: DropSpot) => {
-    const manual = source?.kind === 'folder' && order !== null
+    const manual = hasBoardOrder(source) && order !== null
     setRows((rs) => rs.map((x) => (x.folder === r.folder ? { ...x, status: to } : x)))
     if (manual) {
       const column = rows.map((x) => (x.folder === r.folder ? { ...x, status: to } : x)).filter((x) => x.status === to)
@@ -210,16 +241,18 @@ export function NewTab({ tabId, active, work, clearWork }: { tabId: string; acti
   }
 
   const cardMenu = async (_e: MouseEvent, r: FolderEntry, col: BoardColumn) => {
-    const manual = source?.kind === 'folder' && order !== null
+    const manual = hasBoardOrder(source) && order !== null
     const inColumn = !!r.status && r.statusOptions.includes(r.status)
     const id = await window.fa.popup([
       { label: 'Set Status', submenu: statusMenu(r) },
       { id: 'top', label: 'Move to Top', enabled: manual && inColumn && col.cards[0]?.folder !== r.folder },
+      moveMenu(r),
       { separator: true },
       { id: 'finder', label: 'Show in Finder' },
       { id: 'copy', label: 'Copy YouTube Link', enabled: !!r.videoId },
     ])
     if (id === 'finder') window.fa.showInFinder(r.folder)
+    else if (id?.startsWith('move:')) void moveVideo(r.folder, id.slice(5))
     else if (id === 'copy') void copyLink(r)
     else if (id === 'top' && r.status) void moveCardTo(r, r.status, { top: true })
     else if (id?.startsWith('status:')) {
@@ -236,11 +269,13 @@ export function NewTab({ tabId, active, work, clearWork }: { tabId: string; acti
     const id = await window.fa.popup([
       { id: 'open', label: 'Open' },
       { label: 'Set Status', submenu: statusMenu(r).map((m) => ({ ...m, checked: undefined })) },
+      moveMenu(r),
       { id: 'finder', label: 'Show in Finder' },
       { separator: true },
       { id: 'follow', label: 'Follow this channel' },
     ])
     if (id === 'open') open(r)
+    else if (id?.startsWith('move:')) void moveVideo(r.folder, id.slice(5))
     else if (id === 'finder') window.fa.showInFinder(r.folder)
     else if (id === 'follow') {
       const err = await window.fa.feedFollowFolder(r.folder)
@@ -256,10 +291,99 @@ export function NewTab({ tabId, active, work, clearWork }: { tabId: string; acti
     if (id?.startsWith('status:')) void setStatus(r, id.slice(7))
   }
 
-  const folderMenu = async (e: MouseEvent, path: string) => {
+  /**
+   * Moves a video's folder into `dest` (a library or topic folder). Same folder: nothing happens. A folder view shows
+   * only its own videos, so a card moved out of it leaves the board at once (a failed move reloads it back).
+   */
+  const moveVideo = async (folder: string, dest: string) => {
+    if (parentOf(folder) === dest) return
+    if (source?.kind === 'folder' && parentOf(folder) === source.path) setRows((rs) => rs.filter((x) => x.folder !== folder))
+    const r = await window.fa.moveVideo(folder, dest)
+    if (r && 'error' in r) setMoveError(r.error)
+    else if (r) {
+      setMoved({ from: r.from, to: r.to, dest: name(dest) })
+      if (selected === folder) setSelected(r.to)
+    }
+    reload()
+  }
+
+  const undoMove = async () => {
+    const m = moved
+    if (!m) return
+    setMoved(null)
+    const r = await window.fa.moveVideo(m.to, parentOf(m.from))
+    if (r && 'error' in r) setMoveError(r.error)
+    else setNotice(`Moved back to ${name(parentOf(m.from))}`)
+    reload()
+  }
+
+  /** "Move to ▸": the folders of the video's library (indented), its own folder checked. */
+  const moveMenu = (r: FolderEntry): MenuSpec => {
+    const lib = libraryOf(trees, r.folder)
+    const here = parentOf(r.folder)
+    return {
+      label: 'Move to', enabled: !!lib,
+      submenu: lib ? flatten([lib]).map(({ node, depth }) => ({ id: 'move:' + node.path, label: indent(depth) + node.name, checked: node.path === here, enabled: node.path !== here }))
+        : [{ label: 'Not in a library folder', enabled: false }],
+    }
+  }
+
+  const toggleFolder = (path: string) => setCollapsedFolders((c) => {
+    const n = new Set(c)
+    if (n.has(path)) n.delete(path); else n.add(path)
+    window.fa.setCollapsedFolders([...n])
+    return n
+  })
+
+  /** The inline name field was confirmed: make or rename the folder. Returns an error to show, or null. */
+  const commitName = async (typed: string): Promise<string | null> => {
+    const ed = editing
+    if (!ed) return null
+    if (ed.mode === 'new') {
+      const r = await window.fa.newFolder(ed.parent, typed)
+      if ('error' in r) return r.error
+      setEditing(null)
+      loadTree()
+      return null
+    }
+    const r = await window.fa.renameFolder(ed.path, typed)
+    if ('error' in r) return r.error
+    setEditing(null)
+    const from = ed.path, to = r.path
+    // the main process moved every saved path; follow it here too
+    if (source?.kind === 'folder') { const p = relocated(source.path, from, to); if (p !== source.path) setSource({ kind: 'folder', path: p }) }
+    setDestination((d) => relocated(d, from, to))
+    setCollapsedFolders((c) => new Set([...c].map((x) => relocated(x, from, to))))
+    reload()
+    return null
+  }
+
+  const folderMenu = async (e: MouseEvent, node: FolderNode, isLibrary: boolean) => {
     e.preventDefault()
-    const id = await window.fa.popup([{ id: 'finder', label: 'Show in Finder' }, { id: 'remove', label: 'Remove from Sidebar' }])
+    const path = node.path
+    const id = await window.fa.popup([
+      { id: 'new', label: 'New Folder…' },
+      ...(isLibrary ? [] : [{ id: 'rename', label: 'Rename…' }]),
+      { id: 'finder', label: 'Show in Finder' },
+      { separator: true },
+      isLibrary ? { id: 'remove', label: 'Remove from Sidebar' } : { id: 'delete', label: node.empty ? 'Delete' : 'Delete (only an empty folder)', enabled: node.empty },
+    ])
+    if (id === 'new') {
+      setCollapsedFolders((c) => { if (!c.has(path)) return c; const n = new Set(c); n.delete(path); window.fa.setCollapsedFolders([...n]); return n })
+      setEditing({ mode: 'new', parent: path })
+    }
+    if (id === 'rename') setEditing({ mode: 'rename', path, name: node.name })
     if (id === 'finder') window.fa.showInFinder(path)
+    if (id === 'delete') {
+      const err = await window.fa.deleteFolder(path)
+      if (err && err !== 'cancel') setMoveError(err)
+      if (!err) {
+        if (source?.kind === 'folder' && (source.path === path || source.path.startsWith(path + '/'))) choose({ kind: 'folder', path: parentOf(path) })
+        if (destination === path) setDestination(parentOf(path))
+        setNotice(`Deleted ${node.name}`)
+      }
+      reload()
+    }
     if (id === 'remove') {
       const i = await window.fa.removeFolder(path)
       setInfo(i)
@@ -279,7 +403,9 @@ export function NewTab({ tabId, active, work, clearWork }: { tabId: string; acti
 
   const destinationMenu = async () => {
     const id = await window.fa.popup([
-      ...(info?.pinned ?? []).map((p) => ({ id: 'dest:' + p, label: name(p), checked: p === destination })),
+      // each library and its topic folders (indented)
+      ...(trees.length ? flatten(trees) : (info?.pinned ?? []).map((p) => ({ node: { path: p, name: name(p) }, depth: 0 })))
+        .map(({ node, depth }) => ({ id: 'dest:' + node.path, label: indent(depth) + node.name, checked: node.path === destination })),
       { separator: true },
       { id: 'add', label: 'Add Folder…' },
     ])
@@ -308,17 +434,18 @@ export function NewTab({ tabId, active, work, clearWork }: { tabId: string; acti
   const drop = (e: DragEvent, groupName: string) => {
     e.preventDefault()
     setDropOn(null)
-    const folder = e.dataTransfer.getData('text/x-follow-along-folder')
+    const folder = e.dataTransfer.getData(DRAG_TYPE)
     const r = rows.find((x) => x.folder === folder)
     if (!r || groupName === 'No status' || r.status === groupName) return
     void setStatus(r, groupName)
   }
 
-  const title = !source ? '' : source.kind === 'recent' ? 'Recent' : source.kind === 'inProgress' ? 'In progress' : name(source.path)
+  const title = !source ? '' : source.kind === 'recent' ? 'Recent' : source.kind === 'inProgress' ? 'In progress' : source.kind === 'all' ? 'All videos' : name(source.path)
   const emptyText = filter ? `Nothing matches “${filter}”.`
     : source?.kind === 'recent' ? 'Videos you open show up here.'
       : source?.kind === 'inProgress' ? 'Videos you started and did not finish show up here.'
-        : 'No video folders here yet.\nPaste a YouTube link above to make one.'
+        : source?.kind === 'all' ? 'No videos in your library folders yet.\nPaste a YouTube link above to make one.'
+          : 'No videos here yet — drag videos onto this folder, or paste a link with this folder selected.'
 
   const header = (key: SortKey, label: string, cls: string) => (
     <div className={'th ' + cls} role="columnheader" aria-sort={sort.key === key ? (sort.asc ? 'ascending' : 'descending') : 'none'}
@@ -330,12 +457,12 @@ export function NewTab({ tabId, active, work, clearWork }: { tabId: string; acti
   const row = (r: FolderEntry, inGroup: string | null) => (
     <div key={r.folder} data-folder={r.folder} role="row" aria-selected={selected === r.folder}
       className={'tr' + (selected === r.folder ? ' tr--sel' : '') + (group ? ' tr--grouped' : '')}
-      draggable={group} onDragStart={(e) => { e.dataTransfer.setData('text/x-follow-along-folder', r.folder); e.dataTransfer.effectAllowed = 'move' }}
+      draggable onDragStart={(e) => { e.dataTransfer.setData(DRAG_TYPE, r.folder); e.dataTransfer.effectAllowed = 'move'; setDragPill(e, r) }}
       onDragOver={inGroup ? (e) => { e.preventDefault(); setDropOn(inGroup) } : undefined}
       onDrop={inGroup ? (e) => drop(e, inGroup) : undefined}
       onClick={() => { setSelected(r.folder); tableRef.current?.focus() }} onDoubleClick={() => open(r)} onContextMenu={(e) => rowMenu(e, r)}>
       <div className="td td--thumb"><Thumb id={r.videoId} className="rowthumb" /></div>
-      <div className="td td--title" title={r.folder}>{r.title}</div>
+      <div className="td td--title" title={r.folder}>{r.title}{r.topic && <span className="topicchip" title={`In ${r.topic}`}>{r.topic}</span>}</div>
       <div className="td td--date">{dateLabel(r.date)}</div>
       <div className="td td--progress"><ProgressCell r={r} /></div>
       <div className="td td--status">
@@ -356,11 +483,14 @@ export function NewTab({ tabId, active, work, clearWork }: { tabId: string; acti
         <div className="sidebar__section">Library</div>
         <SideItem icon={Icon.clock} label="Recent" on={!feedOn && source?.kind === 'recent'} onClick={() => choose({ kind: 'recent' })} />
         <SideItem icon={Icon.play} label="In progress" on={!feedOn && source?.kind === 'inProgress'} onClick={() => choose({ kind: 'inProgress' })} />
+        <SideItem icon={<span className="sideitem__emoji">📚</span>} label="All videos" on={!feedOn && source?.kind === 'all'}
+          title="Every video in your library folders, topics included" onClick={() => choose({ kind: 'all' })} />
         <div className="sidebar__section">Folders</div>
-        {(info?.pinned ?? []).map((p) => (
-          <SideItem key={p} icon={Icon.folder} label={name(p)} title={tilde(p, info?.home ?? '')}
-            on={!feedOn && source?.kind === 'folder' && source.path === p} onClick={() => choose({ kind: 'folder', path: p })} onContextMenu={(e) => folderMenu(e, p)} />
-        ))}
+        <FolderTree trees={trees} selected={!feedOn && source?.kind === 'folder' ? source.path : null} collapsed={collapsedFolders}
+          onToggle={toggleFolder} onSelect={(p) => choose({ kind: 'folder', path: p })} onMenu={folderMenu}
+          onDropVideo={(folder, dest) => void moveVideo(folder, dest)}
+          editing={editing} onCommit={commitName} onCancel={() => setEditing(null)}
+          folderIcon={Icon.folder} chevron={Icon.chevron} titleOf={(p) => tilde(p, info?.home ?? '')} />
         <SideItem icon={Icon.plus} label="Add Folder…" quiet onClick={addFolder} />
         <SideItem icon={Icon.other} label="Other Folder…" quiet onClick={() => window.fa.openExisting(tabId, currentFolder)} />
       </nav>
@@ -382,6 +512,10 @@ export function NewTab({ tabId, active, work, clearWork }: { tabId: string; acti
           <h2 className="listheader__title">{title}</h2>
           {loading && <span className="spinner" />}
           <span className="grow" />
+          {view === 'board' && Object.keys(colWidths).length > 0 && (
+            <button className="togglebtn" title="Put every board column back to its default width"
+              onClick={() => { setColWidths({}); window.fa.setColumnWidths({}) }}>Reset columns</button>
+          )}
           <div className="segmented" role="group" aria-label="View">
             <button className={'segmented__btn' + (view === 'board' ? ' segmented__btn--on' : '')} aria-pressed={view === 'board'} onClick={() => changeView('board')}>Board</button>
             <button className={'segmented__btn' + (view === 'table' ? ' segmented__btn--on' : '')} aria-pressed={view === 'table'} onClick={() => changeView('table')}>Table</button>
@@ -398,14 +532,15 @@ export function NewTab({ tabId, active, work, clearWork }: { tabId: string; acti
         </div>
         {filtered.length === 0 && !loading ? (
           <div className="empty">
-            <div className="empty__icon">{filter ? Icon.search : source?.kind === 'recent' ? Icon.clock : source?.kind === 'inProgress' ? Icon.play : Icon.folder}</div>
+            <div className="empty__icon">{filter ? Icon.search : source?.kind === 'recent' ? Icon.clock : source?.kind === 'inProgress' ? Icon.play : source?.kind === 'all' ? <span className="sideitem__emoji">📚</span> : Icon.folder}</div>
             <div className="empty__text">{emptyText}</div>
           </div>
         ) : view === 'board' ? (
           <Board rows={filtered} options={filtered[0]?.statusOptions ?? DEFAULT_OPTIONS}
-            order={source?.kind === 'folder' ? (order ?? {}) : null} selected={selected} onSelect={setSelected}
+            order={hasBoardOrder(source) ? (order ?? {}) : null} selected={selected} onSelect={setSelected}
             onOpen={open} onMenu={cardMenu} onMove={(r, to, spot, collapsedLabel) => { if (collapsedLabel) setNotice(`Moved to ${collapsedLabel}`); void moveCardTo(r, to, spot) }}
-            collapsed={collapsedCols} onToggleCollapse={toggleColumn} />
+            collapsed={collapsedCols} onToggleCollapse={toggleColumn}
+            widths={colWidths} onResize={resizeColumn} />
         ) : (
           <div className={'table' + (group ? ' table--grouped' : '')} role="grid" tabIndex={0} ref={tableRef} onKeyDown={onTableKey}>
             <div className="thead" role="row">
@@ -454,6 +589,12 @@ export function NewTab({ tabId, active, work, clearWork }: { tabId: string; acti
         </div>
       ) : null}
       {notice && <div className="zoomtoast">{notice}</div>}
+      {moved && (
+        <div className="movetoast" role="status">
+          <span>Moved to {moved.dest}</span><span className="movetoast__dot">·</span>
+          <button className="movetoast__undo" onClick={() => void undoMove()}>Undo</button>
+        </div>
+      )}
       {moveError && (
         <div className="errorchip" role="alert">
           <span className="errorchip__text">{moveError}</span>
