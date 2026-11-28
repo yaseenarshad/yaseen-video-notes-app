@@ -43,7 +43,7 @@ not writable; `-- --cli-only` installs only the command). The shim runs
 "Follow Along" (`com.yaseen.followalong`) so its tabs are saved before the new app copies its settings.
 Environment variables are `VIDEO_NOTES_*` (`DEBUG_LOG`, `USER_DATA`, `MUTE`, `NO_IMPORT`); the old `FOLLOW_ALONG_*` names still work.
 `VIDEO_NOTES_FEED_DIR=<tmp>` points the 📺 Feed's files somewhere else: **always set it for test instances** (the default is the
-user's real `~/Documents/GitHub/skills-global-yaseen/yaseen-video-notes-app/`, which also holds their SKILL.md — never touch that).
+user's real `~/Documents/GitHub/skills-global-yaseen/yaseen-video-notes-app-skill/`, which also holds their SKILL.md — never touch that).
 `VIDEO_NOTES_MENU_SCRIPT=<file>` (test instances only): context menus and the delete-folder confirm are answered with the
 file's next line (an item id / `delete` / empty) instead of being shown, and logged, so CDP tests can drive them.
 Real-network Feed checks: `VIDEO_NOTES_NETWORK_TESTS=1 npx vitest run src/core/feedFetch.network.test.ts`.
@@ -133,7 +133,7 @@ Do not commit unless asked.
    Frontmatter (`---\nid: YAS-NNN\n---`) may be added above `# Title` by another tool and must be tolerated.
    **Agent guide:** a `<!-- follow-along guide vN … -->` comment after the header list, before the header's `---`
    (`core/guide.ts`). Since v3 it is ONE line pointing agents to the skill file with the full agent rules,
-   `/Users/yasin/Documents/GitHub/skills-global-yaseen/yaseen-video-notes-app/SKILL.md` (outside this repo, kept by
+   `/Users/yasin/Documents/GitHub/skills-global-yaseen/yaseen-video-notes-app-skill/SKILL.md` (outside this repo, kept by
    the user): **agent-rule changes go in that skill, never into each .md** (no backfills). Only a change to the
    pointer itself bumps the version. Every parser skips HTML comment blocks (`commentMask`). It is written into new folders and
    setup conversions; an existing file gets it (or a newer version, replaced in place, exactly one) only when the

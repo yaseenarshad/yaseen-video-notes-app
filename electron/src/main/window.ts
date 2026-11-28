@@ -36,7 +36,7 @@ const BAR = 44
  */
 /** Tab menu "Copy for Agent": a short prompt that points an agent at the skill and this video's transcript. */
 export function agentPrompt(title: string, markdown: string): string {
-  const skill = join(homedir(), 'Documents/GitHub/skills-global-yaseen/yaseen-video-notes-app/SKILL.md')
+  const skill = join(homedir(), 'Documents/GitHub/skills-global-yaseen/yaseen-video-notes-app-skill/SKILL.md')
   return [
     `Use the yaseen-video-notes-app skill (read ${skill} first).`,
     `Video: ${title}`,

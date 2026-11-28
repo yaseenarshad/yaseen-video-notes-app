@@ -92,7 +92,7 @@ describe('TranscriptTests', () => {
 - views: 31804
 - uploaded: 20261017
 
-<!-- follow-along guide v3 — this file is managed by the Yaseen Video Notes app. Agents: before editing it, read /Users/yasin/Documents/GitHub/skills-global-yaseen/yaseen-video-notes-app/SKILL.md — and read it again fresh if some time has passed since you last read it, because it changes; don't rely on a remembered copy. -->
+<!-- follow-along guide v4 — this file is managed by the Yaseen Video Notes app. Agents: before editing it, read /Users/yasin/Documents/GitHub/skills-global-yaseen/yaseen-video-notes-app-skill/SKILL.md — and read it again fresh if some time has passed since you last read it, because it changes; don't rely on a remembered copy. -->
 
 ---
 

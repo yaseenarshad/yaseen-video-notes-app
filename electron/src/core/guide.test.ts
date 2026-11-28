@@ -20,7 +20,7 @@ describe('agent guide', () => {
   it('is a one-line pointer to the agent skill file (one copy of the text, in core)', () => {
     expect(GUIDE.startsWith(`<!-- follow-along guide v${GUIDE_VERSION} — `)).toBe(true)
     // a one-line pointer to the skill file with the full agent rules
-    expect(GUIDE).toBe('<!-- follow-along guide v3 — this file is managed by the Yaseen Video Notes app. Agents: before editing it, read /Users/yasin/Documents/GitHub/skills-global-yaseen/yaseen-video-notes-app/SKILL.md — and read it again fresh if some time has passed since you last read it, because it changes; don\'t rely on a remembered copy. -->')
+    expect(GUIDE).toBe('<!-- follow-along guide v4 — this file is managed by the Yaseen Video Notes app. Agents: before editing it, read /Users/yasin/Documents/GitHub/skills-global-yaseen/yaseen-video-notes-app-skill/SKILL.md — and read it again fresh if some time has passed since you last read it, because it changes; don\'t rely on a remembered copy. -->')
     expect(GUIDE).toContain(SKILL_PATH)
     expect(GUIDE.includes('\n')).toBe(false)
     expect(GUIDE.endsWith(' -->')).toBe(true)
@@ -100,15 +100,15 @@ Full spec: docs/how-it-works.md in github.com/yaseenarshad/video-follow-along-ap
 -->`
     const old = sampleMD.replace('- uploaded: 20261017\n\n---\n', `- uploaded: 20261017\n\n${v1}\n\n---\n`)
     expect(findGuides(old.split('\n')).map((g) => g.version)).toEqual([1])
-    expect(GUIDE_VERSION).toBe(3)
+    expect(GUIDE_VERSION).toBe(4)
     const out = ensureGuide(old)
     expect(out).toBe(withGuide)
     expect(out).toContain(SKILL_PATH)
     expect(out).not.toContain('video-follow-along-app')
-    expect(findGuides(out.split('\n')).map((g) => g.version)).toEqual([3])
+    expect(findGuides(out.split('\n')).map((g) => g.version)).toEqual([4])
   })
 
-  it('the v2 guide in vault files is upgraded to v3 in place on the next write (and only then)', () => {
+  it('the v2 guide in vault files is upgraded to v4 in place on the next write (and only then)', () => {
     const v2 = `<!-- follow-along guide v2 — rules for agents editing this file (the Yaseen Video Notes app reads it)
 - Paragraph lines start with [m:ss](youtube link). Never add, remove, merge, reorder or reword them.
 - Notes go under their paragraph: > 💬 [m:ss](link&t=Ns) text
@@ -122,14 +122,25 @@ Full spec: docs/how-it-works.md in github.com/yaseenarshad/yaseen-video-notes-ap
     const old = sampleMD.replace('- uploaded: 20261017\n\n---\n', `- uploaded: 20261017\n\n${v2}\n\n---\n`)
     expect(findGuides(old.split('\n')).map((g) => g.version)).toEqual([2])
     expect(ensureGuide(old)).toBe(withGuide)
-    // a real write (a note save) upgrades it in place: same spot, exactly one guide, v3
+    // a real write (a note save) upgrades it in place: same spot, exactly one guide, v4
     const dir = mkdtempSync(join(tmpdir(), 'fa-guide-')); temps.push(dir)
     const path = join(dir, 'a.md')
     writeFileSync(path, old)
     addNote(path, 1, 13, 'note')
     const out = readFileSync(path, 'utf8')
     expect(out).toBe(insert(withGuide, 1, 13, 'note'))
-    expect(findGuides(out.split('\n')).map((g) => g.version)).toEqual([3])
+    expect(findGuides(out.split('\n')).map((g) => g.version)).toEqual([4])
     expect(out).toContain(`- uploaded: 20261017\n\n${GUIDE}\n\n---\n`)
+  })
+
+  it('the v3 pointer (old skill folder name) is upgraded to v4 in place on the next write', () => {
+    const v3 = '<!-- follow-along guide v3 — this file is managed by the Yaseen Video Notes app. Agents: before editing it, read /Users/yasin/Documents/GitHub/skills-global-yaseen/yaseen-video-notes-app/SKILL.md — and read it again fresh if some time has passed since you last read it, because it changes; don\'t rely on a remembered copy. -->'
+    const old = sampleMD.replace('- uploaded: 20261017\n\n---\n', `- uploaded: 20261017\n\n${v3}\n\n---\n`)
+    expect(findGuides(old.split('\n')).map((g) => g.version)).toEqual([3])
+    const out = ensureGuide(old)
+    expect(out).toBe(withGuide)
+    expect(out).toContain('skills-global-yaseen/yaseen-video-notes-app-skill/SKILL.md')
+    expect(out).not.toContain('yaseen-video-notes-app/SKILL.md')
+    expect(count(out, 'follow-along guide v')).toBe(1)
   })
 })

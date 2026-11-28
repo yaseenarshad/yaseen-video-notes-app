@@ -58,7 +58,7 @@ turned into one `-`, trimmed, cut to 80 characters (and a trailing `-` dropped).
 - views: <view_count>
 - uploaded: <YYYYMMDD>
 
-<!-- follow-along guide v3 — this file is managed by the Yaseen Video Notes app. Agents: before editing it, read /Users/yasin/Documents/GitHub/skills-global-yaseen/yaseen-video-notes-app/SKILL.md — and read it again fresh if some time has passed since you last read it, because it changes; don't rely on a remembered copy. -->
+<!-- follow-along guide v4 — this file is managed by the Yaseen Video Notes app. Agents: before editing it, read /Users/yasin/Documents/GitHub/skills-global-yaseen/yaseen-video-notes-app-skill/SKILL.md — and read it again fresh if some time has passed since you last read it, because it changes; don't rely on a remembered copy. -->
 (one line: a pointer to the agent skill file, see "For agents processing notes" below)
 
 ---
@@ -193,10 +193,11 @@ Note formats:
 ### For agents processing notes
 Each transcript `.md` carries a one-line guide for agents (an HTML comment after the header list; the app and
 every parser ignore HTML comments; `core/guide.ts` is its only copy). Since **v3** it is only a **pointer** to the
-skill file with the full agent rules, `/Users/yasin/Documents/GitHub/skills-global-yaseen/yaseen-video-notes-app/SKILL.md`
+skill file with the full agent rules, `/Users/yasin/Documents/GitHub/skills-global-yaseen/yaseen-video-notes-app-skill/SKILL.md`
 (kept outside this repo), and tells agents to re-read it fresh because it changes. **Changes to the agent rules go
 in that skill file, never into each `.md`** — so files never need a backfill. (v1 / v2 carried the full rules in
-the file.) The `follow-along guide vN` marker stays, so a file with an older guide gets v3 in place the next time
+the file. v4 only changed the path: the skill folder was renamed to `yaseen-video-notes-app-skill`.) The
+`follow-along guide vN` marker stays, so a file with an older guide gets the current one in place the next time
 the app (or the CLI) writes that file anyway — never a write just for the guide. The rules the skill describes:
 
 Tags right after the time link, written lowercase in this order: `#mochi #claimed:<agent>@<time> #resolved`.
@@ -491,7 +492,7 @@ video folders until **Add to Library** (the same flow as pasting a link: the fol
 folder and opens in the tab). Code: `core/feed.ts` (pure, tested in `feed.test.ts` with real saved output),
 `core/feedFetch.ts` (network), `main/feed.ts` (files, cache, timers, IPC), `renderer/Feed.tsx` (the view).
 
-**Files.** The feed folder is the setting `feedDir`, default `~/Documents/GitHub/skills-global-yaseen/yaseen-video-notes-app`
+**Files.** The feed folder is the setting `feedDir`, default `~/Documents/GitHub/skills-global-yaseen/yaseen-video-notes-app-skill`
 (the user's synced skills repo, so every Mac has the same list; stored with `~`, resolved against the home folder;
 `VIDEO_NOTES_FEED_DIR` overrides it — tests point it at a temp folder). The app creates the folder and its two files
 when missing and never touches anything else there (the folder also holds the skill's `SKILL.md`).

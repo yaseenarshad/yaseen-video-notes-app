@@ -11,10 +11,10 @@
  * just for the guide.
  */
 
-export const GUIDE_VERSION = 3
+export const GUIDE_VERSION = 4
 
 /** Where the full agent rules live (a skill file kept by the user; not in each .md, so files never need a backfill). */
-export const SKILL_PATH = '/Users/yasin/Documents/GitHub/skills-global-yaseen/yaseen-video-notes-app/SKILL.md'
+export const SKILL_PATH = '/Users/yasin/Documents/GitHub/skills-global-yaseen/yaseen-video-notes-app-skill/SKILL.md'
 
 /**
  * Since v3 the guide is a one-line pointer: agent rules change in the skill file, never in each .md. The

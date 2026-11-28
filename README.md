@@ -43,7 +43,7 @@ videos you already have show **In Library**.
 
 - Follow with the "+ Follow channel" field (`@handle`, a channel link, or any video link), or right-click a Library
   row → Follow this channel. Unfollow: right-click a channel chip → Unfollow… and type `unfollow` to confirm.
-- The followed channels live in **`~/Documents/GitHub/skills-global-yaseen/yaseen-video-notes-app/subscriptions.md`**
+- The followed channels live in **`~/Documents/GitHub/skills-global-yaseen/yaseen-video-notes-app-skill/subscriptions.md`**
   (your synced skills repo, so every Mac sees the same list; setting `feedDir`, env `VIDEO_NOTES_FEED_DIR` for tests).
   It is a markdown list you can edit: add a line `- https://www.youtube.com/@handle` and the app fills in the name and
   ID; delete a line to unfollow. Hidden videos are in `feed-hidden.json` next to it.
@@ -111,7 +111,7 @@ installing: `VIDEO_NOTES_APP="$PWD/dist/Yaseen Video Notes.app" build/video-note
 Claimed notes show "🤖 a1" in the player; the Notes tab has an "In progress" filter; right-click → Release claim.
 Details: [docs/how-it-works.md](docs/how-it-works.md#several-agents-at-once-the-video-notes-command). Each transcript
 `.md` has a one-line comment pointing agents to the skill file with the full rules
-(`~/Documents/GitHub/skills-global-yaseen/yaseen-video-notes-app/SKILL.md`); rule changes go there, not into each `.md`.
+(`~/Documents/GitHub/skills-global-yaseen/yaseen-video-notes-app-skill/SKILL.md`); rule changes go there, not into each `.md`.
 
 ## Hotkeys
 

@@ -7,7 +7,7 @@
  * resolved against the home folder (`expandHome`), never a fixed user name. Setting `feedDir`; env override
  * `VIDEO_NOTES_FEED_DIR` (tests).
  */
-export const DEFAULT_FEED_DIR = '~/Documents/GitHub/skills-global-yaseen/yaseen-video-notes-app'
+export const DEFAULT_FEED_DIR = '~/Documents/GitHub/skills-global-yaseen/yaseen-video-notes-app-skill'
 /** Followed channels: a markdown list the user can read and edit in the docs app. */
 export const SUBSCRIPTIONS_FILE = 'subscriptions.md'
 /** Hidden video ids (machine data, kept out of subscriptions.md). */
