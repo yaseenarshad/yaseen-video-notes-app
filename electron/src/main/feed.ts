@@ -21,7 +21,7 @@ import type { MainWindow } from './window'
 /**
  * The 📺 Feed (main process).
  * - Followed channels: `<feedDir>/subscriptions.md`, a markdown list the user can edit (feedDir: setting `feedDir`,
- *   default `~/Documents/GitHub/skills-global-yaseen/yaseen-video-notes-app`, the synced skills repo;
+ *   default `~/Documents/GitHub/skills-global-yaseen/yaseen-video-notes-app-skill`, the synced skills repo;
  *   `VIDEO_NOTES_FEED_DIR` overrides it for tests). Hidden ids: `<feedDir>/feed-hidden.json`. Both are re-read on
  *   every look and watched, so a channel added on another Mac (or typed by hand) shows up; a bare link the user
  *   typed is resolved and only that line is rewritten.

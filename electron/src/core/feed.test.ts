@@ -212,8 +212,8 @@ describe('subscriptions.md', () => {
   const formatAt = (md: string) => md.slice(md.indexOf('## Format'))
 
   it('lives in the skills repo, relative to the home folder', () => {
-    expect(DEFAULT_FEED_DIR).toBe('~/Documents/GitHub/skills-global-yaseen/yaseen-video-notes-app')
-    expect(expandHome(DEFAULT_FEED_DIR, '/Users/someone')).toBe('/Users/someone/Documents/GitHub/skills-global-yaseen/yaseen-video-notes-app')
+    expect(DEFAULT_FEED_DIR).toBe('~/Documents/GitHub/skills-global-yaseen/yaseen-video-notes-app-skill')
+    expect(expandHome(DEFAULT_FEED_DIR, '/Users/someone')).toBe('/Users/someone/Documents/GitHub/skills-global-yaseen/yaseen-video-notes-app-skill')
     expect(expandHome('~', '/Users/x')).toBe('/Users/x')
     expect(expandHome('/tmp/feed', '/Users/x')).toBe('/tmp/feed')
   })
